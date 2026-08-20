@@ -1,0 +1,2 @@
+# HarusoraFlashTool has no third-party runtime dependencies (Python 3.11+).
+# Install build dependencies separately; see README.md.
