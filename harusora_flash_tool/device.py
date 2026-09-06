@@ -71,6 +71,9 @@ class DeviceSession:
                 "boot",
                 "flashing",
                 "oem",
+                "delete-logical-partition",
+                "create-logical-partition",
+                "resize-logical-partition",
             )
             if mutating:
                 msg = f"[dry-run] fastboot {' '.join(self._fb_args(args))}"

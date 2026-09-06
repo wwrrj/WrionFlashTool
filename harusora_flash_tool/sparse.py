@@ -117,7 +117,10 @@ def build_wipe_super_image(source: Path, out_path: Path, *, max_bytes: int = 16 
     if is_android_sparse(source):
         extract_sparse_prefix(source, prefix, max_bytes=max_bytes)
     else:
-        data0 = source.read_bytes()[:max_bytes]
+        # DAT-restored raw super files are usually multi-GB sparse host files.
+        # Read only the prefix needed by liblp instead of materializing all of it.
+        with source.open("rb") as source_fh:
+            data0 = source_fh.read(max_bytes)
         prefix.write_bytes(data0)
 
     data = prefix.read_bytes()

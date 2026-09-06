@@ -169,6 +169,8 @@ def discover_dynamic(super_dir: Path) -> list[DynamicEntry]:
     entries: list[DynamicEntry] = []
     for dat in sorted(super_dir.glob("*.new.dat"), key=lambda item: item.name.lower()):
         name = dat.name[: -len(".new.dat")]
+        if name == "super_empty":
+            continue
         transfer = super_dir / f"{name}.transfer.list"
         if not transfer.is_file():
             raise GeneratorError(f"缺少动态分区传输列表：{transfer}")
@@ -187,19 +189,40 @@ def _minimum_super_bytes(dynamic: list[DynamicEntry], explicit: int | None) -> i
     return max(GIB, math.ceil(required / GIB) * GIB)
 
 
-def _find_wipe_image(images_dir: Path, requested: str | None) -> str:
-    if requested:
-        path = images_dir / requested
+def _find_wipe_source(
+    images_dir: Path,
+    super_dir: Path,
+    requested_image: str | None,
+    requested_dat: str | None,
+) -> tuple[str, str]:
+    if requested_image and requested_dat:
+        raise GeneratorError("--wipe-super-image 与 --wipe-super-dat 只能指定一个")
+    if requested_dat:
+        dat = super_dir / f"{requested_dat}.new.dat"
+        transfer = super_dir / f"{requested_dat}.transfer.list"
+        if not dat.is_file() or not transfer.is_file():
+            raise GeneratorError(
+                f"空 super DAT 必须同时包含：{dat} 与 {transfer}"
+            )
+        return "wipe_super_dat", requested_dat
+    if requested_image:
+        path = images_dir / requested_image
         if not path.is_file():
             raise GeneratorError(f"空 super 镜像不存在：{path}")
-        return requested
+        return "wipe_super_image", requested_image
     candidates = sorted(images_dir.glob("super_empty*.img"))
-    if len(candidates) != 1:
-        raise GeneratorError(
-            "检测到动态分区时，images/ 中必须恰有一个 super_empty*.img，"
-            "或使用 --wipe-super-image 明确指定"
-        )
-    return candidates[0].name
+    if len(candidates) == 1:
+        return "wipe_super_image", candidates[0].name
+    if len(candidates) > 1:
+        raise GeneratorError("images/ 中存在多个 super_empty*.img，请明确指定")
+    dat = super_dir / "super_empty.new.dat"
+    transfer = super_dir / "super_empty.transfer.list"
+    if dat.is_file() and transfer.is_file():
+        return "wipe_super_dat", "super_empty"
+    raise GeneratorError(
+        "检测到动态分区时，必须提供一个 super_empty*.img，或在 super/ 中提供 "
+        "super_empty.new.dat 与 super_empty.transfer.list"
+    )
 
 
 def _inline_ops(
@@ -247,7 +270,16 @@ def render_profile(args: argparse.Namespace) -> tuple[str, list[ImageEntry], lis
     ]
 
     minimum_super = _minimum_super_bytes(dynamic, args.minimum_super_bytes)
-    wipe_image = _find_wipe_image(images_dir, args.wipe_super_image) if dynamic else ""
+    wipe_key, wipe_value = (
+        _find_wipe_source(
+            images_dir,
+            super_dir,
+            args.wipe_super_image,
+            args.wipe_super_dat,
+        )
+        if dynamic
+        else ("wipe_super_image", "")
+    )
     anti = args.anti_version_file or ""
 
     lines = [
@@ -282,15 +314,19 @@ def render_profile(args: argparse.Namespace) -> tuple[str, list[ImageEntry], lis
         f"final_data = {_inline_ops(images, 'final_data', erase_partitions=final_erases)}",
         "",
         "[dynamic]",
-        f"wipe_super_image = {_toml_string(wipe_image)}",
+        f"{wipe_key} = {_toml_string(wipe_value)}",
         f"slot_suffix = {_toml_string(args.dynamic_slot_suffix)}",
         "partitions = [",
     ]
     for entry in dynamic:
+        pad = entry.raw_bytes
+        # Tiny mi_ext placeholders overflow Xiaomi fastbootd unless padded to ≥ 1MiB.
+        if entry.name.lower() == "mi_ext":
+            pad = max(pad, 1024 * 1024)
         lines.append(
             "  { name = "
             + _toml_string(entry.name)
-            + f", dat_bytes = {entry.dat_bytes}, pad_to_bytes = {entry.raw_bytes} }},"
+            + f", dat_bytes = {entry.dat_bytes}, pad_to_bytes = {pad} }},"
         )
     lines.extend(
         [
@@ -346,6 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minimum-super-bytes", type=int, help="最小 super 大小；默认按动态分区推算")
     parser.add_argument("--partition-map", action="append", default=[], help="无法推断时指定 image.img=partition")
     parser.add_argument("--wipe-super-image", help="空 super 镜像文件名")
+    parser.add_argument("--wipe-super-dat", help="空 super DAT 基名，例如 super_empty")
     parser.add_argument("--dynamic-slot-suffix", default="_a", help="动态分区目标后缀")
     parser.add_argument("--set-active-slot", default="a", help="刷完后激活的槽位")
     parser.add_argument("--anti-version-file", help="images/ 下的 anti 版本文件")
@@ -353,7 +390,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pre-erase", action="append", default=[], help="刷写前强制擦除的分区，可重复")
     parser.add_argument("--flash-crc-lists", action="store_true", help="刷入 crclist.txt 与 sparsecrclist.txt")
     parser.add_argument("--disable-root-menu", action="store_true", help="隐藏用户 Root 镜像入口")
-    parser.add_argument("--post-flash-id", action="store_true", help="启用 ColorOS mi_ext/ID 后处理")
+    parser.add_argument(
+        "--post-flash-id",
+        action="store_true",
+        help="启用 ColorOS ID 后处理：跳过包内占位 mi_ext，刷完后接受 ID 补丁 zip",
+    )
     parser.add_argument("--no-reboot-after-success", action="store_true", help="刷写成功后停留在当前模式")
     parser.add_argument("--enable-expansion", action="store_true", help="在用户菜单显示物理扩容入口")
     parser.add_argument("--expansion-target-bytes", type=int, help="扩容后的 super 目标大小")

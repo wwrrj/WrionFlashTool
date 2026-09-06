@@ -37,7 +37,11 @@ def collect_required_paths(
     if profile.dynamic_partitions:
         required.append(profile.img2simg)
         required.append(profile.cygwin_dll)
-        required.append(profile.images_dir / profile.wipe_super_image)
+        if profile.wipe_super_dat:
+            required.append(profile.super_dir / f"{profile.wipe_super_dat}.new.dat")
+            required.append(profile.super_dir / f"{profile.wipe_super_dat}.transfer.list")
+        elif profile.wipe_super_image:
+            required.append(profile.images_dir / profile.wipe_super_image)
 
     if profile.flash_crc_lists:
         # CRC files optional at presence check only if options say so — keep soft:

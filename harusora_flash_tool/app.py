@@ -13,6 +13,7 @@ from .expand import ExpandError, ExpandSession
 from .flash import FlashError, run_diagnostics, run_full_flash
 from .idflash import (
     IdFlashError,
+    discover_id_candidates,
     ensure_fastbootd,
     flash_mi_ext_image,
     format_userdata_metadata,
@@ -100,34 +101,60 @@ def show_diagnostics_ui(profile: FlashProfile, logger: Logger) -> None:
     wait_key()
 
 
+def _apply_id_patch(profile: FlashProfile, session: DeviceSession, logger: Logger, id_path: Path) -> None:
+    image = resolve_id_input(id_path, profile.work_dir)
+    print(f"  解析到：{image}")
+    ensure_fastbootd(session, logger)
+    flash_mi_ext_image(session, image, logger, work=profile.work_dir)
+    cprint("  ID 刷入完成。", Colors.GREEN)
+
+
+def _choose_id_source(profile: FlashProfile) -> Path | None:
+    """Return an ID zip/image path, or None if the user skips."""
+    bundled = discover_id_candidates(profile.rom_root)
+    cprint("  重要：ROM 包内的 mi_ext 只是占位，需要刷独立 ID 补丁。", Colors.YELLOW)
+    print("  当前 ID 是 Recovery OTA zip（含 mi_ext.new.dat），不是单独的 .img。")
+    print("  未刷入 ID 可能一直停在开机动画；必须先刷完 ROM 再刷 ID。")
+    print()
+    if bundled:
+        print(f"  发现刷机包内 ID 补丁：{bundled[0].name}")
+        if len(bundled) > 1:
+            for extra in bundled[1:]:
+                print(f"           另外还有：{extra.name}")
+        print("    [回车]  使用该 zip")
+        print("    [p]     拖入其他 ID 文件")
+        print("    [s]     跳过（开机可能停在动画）")
+        ans = input("  选择> ").strip().lower()
+        if ans in ("s", "skip"):
+            return None
+        if ans in ("p", "path", "n"):
+            return prompt_id_path()
+        return bundled[0]
+    print("    [回车]  拖入 ID 补丁 zip")
+    print("    [s]     跳过（开机可能停在动画）")
+    ans = input("  选择> ").strip().lower()
+    if ans in ("s", "skip"):
+        return None
+    return prompt_id_path()
+
+
 def post_flash_id_and_format(profile: FlashProfile, session: DeviceSession, logger: Logger) -> None:
-    """After ROM flash: optional ID (mi_ext), format data, reboot. No early reboot before this."""
+    """After ROM flash: ID (mi_ext zip), format data, reboot. No early reboot before this."""
     print()
     cprint("  ── 刷包完成（尚未重启）──", Colors.GREEN)
     print()
-    cprint("  重要：若未刷入 ID，开机可能一直停在开机动画。", Colors.YELLOW)
-    print("  ID 是否已经包含在 ROM 包内？")
-    print("    [回车]  是，包内已有 ID，跳过刷 ID")
-    print("    [n]     否，现在拖入/输入 ID 文件再刷入")
-    ans = input("  选择> ").strip().lower()
-
-    if ans in ("n", "no"):
+    id_path = _choose_id_source(profile)
+    if id_path is None:
+        print("  已跳过刷 ID。")
+        logger.write("user skipped ID patch")
+    else:
         print()
         try:
-            id_path = prompt_id_path()
-            work = profile.work_dir
-            image = resolve_id_input(id_path, work)
-            print(f"  解析到：{image}")
-            ensure_fastbootd(session, logger)
-            flash_mi_ext_image(session, image, logger)
-            cprint("  ID 刷入完成。", Colors.GREEN)
+            _apply_id_patch(profile, session, logger, id_path)
         except (IdFlashError, DeviceError) as exc:
             cprint(f"  ID 刷入失败：{exc}", Colors.RED)
             logger.write(f"ID flash failed: {exc}")
-            print("  将继续格式化 Data 并重启；也可稍后单独再刷 ID。")
-    else:
-        print("  已跳过刷 ID（假定包内已有）。")
-        logger.write("user confirmed ID already in package")
+            print("  将继续格式化 Data 并重启；也可稍后在菜单里单独再刷 ID。")
 
     print()
     try:
@@ -479,6 +506,62 @@ def expansion_menu(profile: FlashProfile) -> None:
             return
 
 
+def id_flash_ui(profile: FlashProfile) -> None:
+    """Standalone ID patch: flash mi_ext from an OTA zip. Does not wipe userdata."""
+    show_banner(profile.display_name)
+    cprint("  刷入 / 更新 ID 补丁 · 不清空用户数据", Colors.YELLOW)
+    print()
+    print("  请使用 ID 补丁 zip（含 images/super/mi_ext.new.dat + transfer.list）。")
+    print("  必须先刷完 ROM，再刷 ID；否则补丁会被包内占位 mi_ext 覆盖。")
+    print()
+
+    logger = Logger()
+    logger.start(profile.logs_dir, prefix="harusora-id")
+    try:
+        id_path = _choose_id_source(profile)
+        if id_path is None:
+            print("  已取消。")
+            wait_key()
+            return
+        session = DeviceSession(profile.fastboot, profile.adb, logger)
+        session.select_device(choose=_choose_factory(profile.display_name))
+        product = session.getvar("product")
+        if not product or product not in profile.codenames:
+            raise IdFlashError(
+                f"机型不匹配：{product or '无法读取'}；支持：{', '.join(profile.codenames)}"
+            )
+        print()
+        cprint(f"  设备：{product}", Colors.CYAN)
+        cprint(f"  ID 文件：{id_path}", Colors.CYAN)
+        answer = input("  确认刷入请输入 ID> ").strip()
+        if answer != "ID":
+            print("  已取消，没有写入设备。")
+            wait_key()
+            return
+        _apply_id_patch(profile, session, logger, id_path)
+        reboot = input("  输入 Y 立即重启系统，其他键保持 fastboot> ").strip().lower()
+        if reboot == "y":
+            session.run_fastboot(
+                ["reboot"],
+                label="重启系统",
+                allow_failure=True,
+                show_output=True,
+            )
+        if logger.path:
+            print(f"  日志：{logger.path}")
+    except (IdFlashError, DeviceError) as exc:
+        cprint(f"  ID 刷入失败：{exc}", Colors.RED)
+        logger.fatal(exc)
+        if logger.path:
+            print(f"  日志：{logger.path}")
+    except Exception as exc:
+        cprint(f"  ID 刷入失败：{exc}", Colors.RED)
+        logger.write(traceback.format_exc())
+        if logger.path:
+            print(f"  日志：{logger.path}")
+    wait_key()
+
+
 def clean_work(profile: FlashProfile) -> None:
     show_banner(profile.display_name)
     work = profile.work_dir
@@ -503,6 +586,10 @@ def main_menu_entries(profile: FlashProfile) -> tuple[list[str], list[str]]:
     if profile.enable_root_menu:
         items.insert(2, "刷入 Root 镜像（不清空数据）")
         actions.insert(2, "root")
+    if profile.post_flash_id:
+        idx = actions.index("check")
+        items.insert(idx, "刷入 / 更新 ID 补丁（mi_ext zip）")
+        actions.insert(idx, "id")
     if profile.expansion and profile.expansion.enabled:
         items.append("super 物理扩容 / 恢复官方分区表")
         actions.append("expansion")
@@ -530,6 +617,8 @@ def run_tui(profile: FlashProfile) -> int:
             update_flash_ui(profile)
         elif action == "root":
             root_flash_ui(profile)
+        elif action == "id":
+            id_flash_ui(profile)
         elif action == "check":
             show_diagnostics_ui(profile, logger)
         elif action == "expansion":

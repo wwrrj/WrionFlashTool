@@ -72,7 +72,8 @@ class FlashProfile:
     boot_chain: list[ImageOp]
     final_data: list[ImageOp]
 
-    wipe_super_image: str
+    wipe_super_image: str | None
+    wipe_super_dat: str | None
     slot_suffix: str
     dynamic_partitions: list[DynamicPartition]
 
@@ -406,8 +407,25 @@ def load_profile(rom_root: Path, profile_path: Path) -> FlashProfile:
     if not firmware and not boot_chain and not (dynamic.get("partitions")):
         raise ProfileError("配置中没有任何刷写阶段（firmware / boot_chain / dynamic）")
 
-    wipe_super = str(dynamic.get("wipe_super_image") or "super_empty_16g.img").strip()
-    _validate_relative_path(wipe_super, "[dynamic].wipe_super_image")
+    has_wipe_image = "wipe_super_image" in dynamic
+    has_wipe_dat = "wipe_super_dat" in dynamic
+    if has_wipe_image and has_wipe_dat:
+        raise ProfileError(
+            "[dynamic].wipe_super_image 与 [dynamic].wipe_super_dat 只能配置一个"
+        )
+    if has_wipe_dat:
+        wipe_super_dat = str(dynamic.get("wipe_super_dat") or "").strip()
+        if not wipe_super_dat:
+            raise ProfileError("[dynamic].wipe_super_dat 不能为空")
+        _validate_name(wipe_super_dat, "[dynamic].wipe_super_dat")
+        wipe_super_image = None
+    else:
+        # Backward compatible default for existing packages.
+        wipe_super_image = str(
+            dynamic.get("wipe_super_image") or "super_empty_16g.img"
+        ).strip()
+        _validate_relative_path(wipe_super_image, "[dynamic].wipe_super_image")
+        wipe_super_dat = None
     slot_suffix = str(dynamic.get("slot_suffix") if dynamic.get("slot_suffix") is not None else "_a")
     if slot_suffix not in ("", "_a", "_b"):
         raise ProfileError("[dynamic].slot_suffix 只能是空字符串、_a 或 _b")
@@ -479,7 +497,8 @@ def load_profile(rom_root: Path, profile_path: Path) -> FlashProfile:
         firmware=firmware,
         boot_chain=boot_chain,
         final_data=final_data,
-        wipe_super_image=wipe_super,
+        wipe_super_image=wipe_super_image,
+        wipe_super_dat=wipe_super_dat,
         slot_suffix=slot_suffix,
         dynamic_partitions=dynamic_partitions,
         set_active_slot=set_active_slot,

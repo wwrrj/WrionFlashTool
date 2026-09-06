@@ -56,6 +56,69 @@ class GenerateProfileTest(unittest.TestCase):
         )
         self.assertIsNone(profile.expansion)
 
+    def test_mi_ext_is_padded_to_at_least_1mib(self) -> None:
+        (self.root / "images" / "boot.img").write_bytes(b"ANDROID!")
+        (self.root / "images" / "super_empty_8g.img").write_bytes(b"empty")
+        (self.root / "super" / "mi_ext.new.dat").write_bytes(b"x" * 100)
+        (self.root / "super" / "mi_ext.transfer.list").write_text(
+            "4\n34\n0\n0\nnew 2,0,34\n", encoding="utf-8"
+        )
+        result = main(
+            [
+                "--rom-root",
+                str(self.root),
+                "--codename",
+                "houji",
+                "--author",
+                "Harusora Team",
+                "--qq-group",
+                "123456",
+                "--post-flash-id",
+                "--no-validate",
+            ]
+        )
+        self.assertEqual(result, 0)
+        profile = load_profile(self.root, self.root / PROFILE_REL)
+        self.assertEqual(profile.dynamic_partitions[0].name, "mi_ext")
+        self.assertEqual(profile.dynamic_partitions[0].pad_to_bytes, 1048576)
+        self.assertTrue(profile.post_flash_id)
+
+    def test_generates_profile_with_dat_only_wipe_super(self) -> None:
+        (self.root / "images" / "boot.img").write_bytes(b"ANDROID!")
+        platform_tools = self.root / "tools" / "platform-tools"
+        platform_tools.mkdir(parents=True)
+        (platform_tools / "adb.exe").write_bytes(b"tool")
+        (platform_tools / "fastboot.exe").write_bytes(b"tool")
+        (self.root / "tools" / "img2simg.exe").write_bytes(b"tool")
+        (self.root / "tools" / "cygwin1.dll").write_bytes(b"tool")
+        (self.root / "super" / "system.new.dat").write_bytes(b"data")
+        (self.root / "super" / "system.transfer.list").write_text(
+            "4\n2\n0\n0\n", encoding="utf-8"
+        )
+        (self.root / "super" / "super_empty.new.dat").write_bytes(b"empty")
+        (self.root / "super" / "super_empty.transfer.list").write_text(
+            "4\n4194304\n0\n0\nnew 2,0,1\n", encoding="utf-8"
+        )
+
+        result = main(
+            [
+                "--rom-root",
+                str(self.root),
+                "--codename",
+                "houji",
+                "--author",
+                "Harusora Team",
+                "--qq-group",
+                "123456",
+            ]
+        )
+
+        self.assertEqual(result, 0)
+        profile = load_profile(self.root, self.root / PROFILE_REL)
+        self.assertEqual(profile.wipe_super_dat, "super_empty")
+        self.assertIsNone(profile.wipe_super_image)
+        self.assertEqual([part.name for part in profile.dynamic_partitions], ["system"])
+
     def test_full_validation_passes_for_complete_package(self) -> None:
         (self.root / "images" / "boot.img").write_bytes(b"ANDROID!")
         platform_tools = self.root / "tools" / "platform-tools"

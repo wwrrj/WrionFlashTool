@@ -29,6 +29,57 @@ class FlashError(Exception):
 ChooseFn = Callable[[str, list[str]], int]
 ConfirmFn = Callable[[str], str]
 
+# Xiaomi/ColorOS fastbootd raises EOVERFLOW ("Value too large for defined data type")
+# when auto-resizing tiny logical partitions such as placeholder mi_ext (~136KiB).
+MIN_LOGICAL_FLASH_BYTES = 1024 * 1024
+_SMALL_LOGICAL_RECREATE_BYTES = 8 * 1024 * 1024
+_LOGICAL_BLOCK_BYTES = 4096
+
+
+def logical_flash_size(out_size: int, pad_to_bytes: int | None = None) -> int:
+    """Return the size we actually flash/create, padded up for tiny dynamic partitions."""
+    size = max(int(out_size), int(pad_to_bytes or 0))
+    if size < MIN_LOGICAL_FLASH_BYTES:
+        size = MIN_LOGICAL_FLASH_BYTES
+    if size % _LOGICAL_BLOCK_BYTES:
+        size += _LOGICAL_BLOCK_BYTES - (size % _LOGICAL_BLOCK_BYTES)
+    return size
+
+
+def logical_size_for_sparse_payload(logical_size: int, sparse_bytes: int) -> int:
+    """Leave enough logical space for fastbootd to accept the encoded sparse payload."""
+    if sparse_bytes <= logical_size:
+        return logical_size
+    return logical_flash_size(sparse_bytes + _LOGICAL_BLOCK_BYTES)
+
+
+def is_overflow_flash_error(text: str) -> bool:
+    lowered = (text or "").lower()
+    return "value too large" in lowered or "eoverflow" in lowered
+
+
+def recreate_logical_partition(session: DeviceSession, name: str, size_bytes: int) -> None:
+    """Delete and recreate a dynamic logical partition so flash can resize cleanly."""
+    session.run_fastboot(
+        ["delete-logical-partition", name],
+        label=f"delete-logical-partition {name}",
+        show_output=True,
+        allow_failure=True,
+    )
+    result = session.run_fastboot(
+        ["create-logical-partition", name, str(size_bytes)],
+        label=f"create-logical-partition {name} {size_bytes}",
+        show_output=True,
+        allow_failure=True,
+    )
+    if result.code != 0:
+        session.logger.write(f"create-logical-partition {name} failed: {result.text}")
+
+
+def is_separate_id_partition(name: str) -> bool:
+    """True when this dynamic partition is supplied by a post-flash ID zip, not the ROM stub."""
+    return name.strip().lower() == "mi_ext"
+
 
 def _flashed_partitions(text: str) -> list[str]:
     return re.findall(r"Partition\s+(\S+)\s+flashed successfully", text or "", flags=re.I)
@@ -164,23 +215,93 @@ def convert_dat_to_sparse(
     sparse: Path,
     pad_to_bytes: int | None,
     logger: Logger,
-) -> None:
+) -> int:
     """
     transfer.list + .new.dat → raw partition (sdat2img) → sparse (img2simg).
 
     Never img2simg the .new.dat directly: it is a block-OTA stream, not a linear image.
     """
+    raw = profile.work_dir / f"{name}.raw.img"
+    out_size = restore_dat_to_raw(profile, session, name, dat, raw, logger)
+    if session.dry_run:
+        print(f"  ├─ [dry-run] img2simg {raw.name} -> {sparse.name}")
+        sparse.write_bytes(b"")
+        return logical_flash_size(pad_to_bytes or 0)
+
+    conversion_input = raw
+    target_size = logical_flash_size(out_size, pad_to_bytes)
+    if target_size > out_size:
+        # Tiny logical partitions (especially mi_ext) must be ≥ 1MiB or fastbootd
+        # fails with "Value too large for defined data type" while resizing.
+        with raw.open("r+b") as fh:
+            fh.truncate(target_size)
+        logger.write(f"{name} raw padded {out_size} -> {target_size}")
+        print(f"  │  {name} 已补零到 {target_size} 字节（避免 fastbootd 过小分区失败）")
+        out_size = target_size
+
+    for attempt in range(1, 4):
+        logger.write(f"img2simg {conversion_input} {sparse} (attempt {attempt})")
+        print(f"  │  img2simg：{name} → sparse…")
+        result = run_process(
+            profile.img2simg,
+            [str(conversion_input), str(sparse)],
+            logger=logger,
+            show_output=True,
+        )
+        if result.code != 0:
+            raise FlashError(f"img2simg 转换 {name} 失败：{result.text}")
+
+        sparse_bytes = sparse.stat().st_size
+        safe_size = logical_size_for_sparse_payload(out_size, sparse_bytes)
+        logger.write(
+            f"{name} sparse payload size={sparse_bytes}, logical size={out_size}, "
+            f"safe size={safe_size}"
+        )
+        if safe_size == out_size:
+            break
+
+        # fastbootd checks the downloaded sparse file length before decoding it.
+        # A nearly incompressible image can therefore be a few sparse-header bytes
+        # larger than the logical partition and fail with EOVERFLOW even though its
+        # expanded size is correct. Add zero tail room and regenerate the sparse file.
+        with raw.open("r+b") as fh:
+            fh.truncate(safe_size)
+        sparse.unlink(missing_ok=True)
+        logger.write(f"{name} raw padded for sparse transport {out_size} -> {safe_size}")
+        print(
+            f"  │  {name} sparse 封装比逻辑分区大，已补零到 {safe_size} 字节后重试"
+        )
+        out_size = safe_size
+    else:
+        raise FlashError(f"{name} sparse 封装尺寸连续超过逻辑分区，无法安全刷入")
+
+    # free multi-GB raw ASAP
+    try:
+        raw.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return out_size
+
+
+def restore_dat_to_raw(
+    profile: FlashProfile,
+    session: DeviceSession,
+    name: str,
+    dat: Path,
+    raw: Path,
+    logger: Logger,
+) -> int:
+    """Restore one block-OTA DAT stream to a sparse host-side raw file."""
     profile.work_dir.mkdir(parents=True, exist_ok=True)
     transfer = profile.super_dir / f"{name}.transfer.list"
     if not transfer.is_file():
         raise FlashError(f"缺少 {name}.transfer.list，无法正确还原分区镜像")
-
-    raw = profile.work_dir / f"{name}.raw.img"
+    if not dat.is_file():
+        raise FlashError(f"缺少 {name}.new.dat，无法正确还原分区镜像")
     if session.dry_run:
         print(f"  ├─ [dry-run] sdat2img {transfer.name} + {dat.name} -> {raw.name}")
-        print(f"  ├─ [dry-run] img2simg {raw.name} -> {sparse.name}")
-        sparse.write_bytes(b"")
-        return
+        raw.write_bytes(b"")
+        return 0
 
     logger.write(f"sdat2img {transfer} {dat} -> {raw}")
 
@@ -200,30 +321,25 @@ def convert_dat_to_sparse(
         raise FlashError(f"sdat2img 还原 {name} 失败：{exc}") from exc
     print(f"\r  │  sdat2img {name:<12} [{'#' * 30}] 100%", flush=True)
     logger.write(f"sdat2img {name} raw size={out_size}")
+    return out_size
 
-    conversion_input = raw
-    if pad_to_bytes is not None and out_size < pad_to_bytes:
-        # grow raw file (zero pad) for tiny partitions like mi_ext
-        with raw.open("r+b") as fh:
-            fh.truncate(pad_to_bytes)
-        logger.write(f"{name} raw padded {out_size} -> {pad_to_bytes}")
-        print(f"  │  {name} 已补零到 {pad_to_bytes} 字节")
 
-    logger.write(f"img2simg {conversion_input} {sparse}")
-    print(f"  │  img2simg：{name} → sparse…")
-    result = run_process(
-        profile.img2simg,
-        [str(conversion_input), str(sparse)],
-        logger=logger,
-        show_output=True,
-    )
-    # free multi-GB raw ASAP
-    try:
-        raw.unlink(missing_ok=True)
-    except OSError:
-        pass
-    if result.code != 0:
-        raise FlashError(f"img2simg 转换 {name} 失败：{result.text}")
+def prepare_wipe_super_source(
+    profile: FlashProfile,
+    session: DeviceSession,
+    logger: Logger,
+) -> Path:
+    """Resolve a legacy IMG or restore a DAT-only empty-super source."""
+    if profile.wipe_super_dat:
+        name = profile.wipe_super_dat
+        dat = profile.super_dir / f"{name}.new.dat"
+        raw = profile.work_dir / f"{name}.raw.img"
+        print(f"  │  正在还原空 super：{name}.new.dat")
+        restore_dat_to_raw(profile, session, name, dat, raw, logger)
+        return raw
+    if profile.wipe_super_image:
+        return profile.images_dir / profile.wipe_super_image
+    raise FlashError("线刷配置未指定空 super 的 IMG 或 DAT")
 
 
 def _wipe_or_init_super(
@@ -243,7 +359,7 @@ def _wipe_or_init_super(
     import time
 
     if not wipe_img.is_file():
-        raise FlashError(f"找不到空 super 镜像：{wipe_img}")
+        raise FlashError(f"找不到空 super 刷写源：{wipe_img}")
 
     # Confirm userspace fastbootd
     us = session.getvar("is-userspace", allow_missing=True)
@@ -324,7 +440,7 @@ def _wipe_or_init_super(
         "在 fastbootd 初始化空 super 失败。\n"
         f"已尝试：wipe-super / flash super / create-logical-partition\n"
         f"最后错误：\n{last_error}\n"
-        "请确认 images/super_empty_16g.img 完整，且当前为 fastbootd（is-userspace:yes）。"
+        "请确认空 super 的 IMG/DAT 资源完整，且当前为 fastbootd（is-userspace:yes）。"
     )
 
 
@@ -340,10 +456,7 @@ def _create_logical_partitions_from_profile(
     suffix = profile.slot_suffix or "_a"
     for part in profile.dynamic_partitions:
         name = f"{part.name}{suffix}"
-        size = part.pad_to_bytes or part.dat_bytes
-        # round up to 4K
-        if size % 4096:
-            size += 4096 - (size % 4096)
+        size = logical_flash_size(part.pad_to_bytes or part.dat_bytes)
         session.run_fastboot(
             ["delete-logical-partition", name],
             label=f"delete-logical-partition {name}",
@@ -364,6 +477,46 @@ def _create_logical_partitions_from_profile(
     return ok_any
 
 
+def flash_dynamic_partition_image(
+    session: DeviceSession,
+    partition: str,
+    image: Path,
+    logger: Logger,
+    *,
+    logical_size: int,
+) -> None:
+    """Flash one dynamic partition, recreating tiny logicals and retrying EOVERFLOW."""
+    small = logical_size <= _SMALL_LOGICAL_RECREATE_BYTES
+    if small:
+        recreate_logical_partition(session, partition, logical_size)
+    result = session.run_fastboot(
+        ["flash", partition, str(image)],
+        label=f"刷入 {partition}",
+        show_output=True,
+        allow_failure=True,
+    )
+    if result.code == 0:
+        return
+    text = result.text or ""
+    if is_overflow_flash_error(text) or small:
+        retry_size = max(logical_size, MIN_LOGICAL_FLASH_BYTES)
+        print("  │  逻辑分区写入失败，正在重建后重试…")
+        logger.write(f"retry flash {partition} after logical recreate: {text}")
+        recreate_logical_partition(session, partition, retry_size)
+        result = session.run_fastboot(
+            ["flash", partition, str(image)],
+            label=f"刷入 {partition}（重试）",
+            show_output=True,
+            allow_failure=True,
+        )
+        if result.code == 0:
+            return
+        text = result.text or ""
+    raise DeviceError(
+        f"刷入 {partition} 失败（{result.code}）：flash {partition} {image}\n{text}"
+    )
+
+
 def flash_dynamic_partitions(
     profile: FlashProfile,
     session: DeviceSession,
@@ -373,7 +526,7 @@ def flash_dynamic_partitions(
     if not session.dry_run:
         session.wait_for_mode(True)
 
-    wipe_img = profile.images_dir / profile.wipe_super_image
+    wipe_img = prepare_wipe_super_source(profile, session, logger)
     _wipe_or_init_super(profile, session, logger, wipe_img)
 
     if profile.work_dir.exists():
@@ -383,10 +536,20 @@ def flash_dynamic_partitions(
     try:
         total = len(profile.dynamic_partitions)
         for index, part in enumerate(profile.dynamic_partitions, start=1):
+            target = f"{part.name}{profile.slot_suffix}"
+            if profile.post_flash_id and is_separate_id_partition(part.name):
+                print(
+                    f"  ├─ [{index}/{total}] 跳过 {part.name} "
+                    "（由独立 ID 补丁刷入，避免覆盖）"
+                )
+                logger.write(
+                    f"skipped placeholder {part.name}; ID patch is applied separately"
+                )
+                continue
             dat = profile.super_dir / f"{part.name}.new.dat"
             sparse = profile.work_dir / f"{part.name}.img"
             print(f"  ├─ [{index}/{total}] 转换 {part.name} DAT → sparse")
-            convert_dat_to_sparse(
+            flashed_size = convert_dat_to_sparse(
                 profile,
                 session,
                 part.name,
@@ -395,11 +558,12 @@ def flash_dynamic_partitions(
                 part.pad_to_bytes,
                 logger,
             )
-            target = f"{part.name}{profile.slot_suffix}"
-            session.run_fastboot(
-                ["flash", target, str(sparse)],
-                label=f"刷入 {target}",
-                show_output=True,
+            flash_dynamic_partition_image(
+                session,
+                target,
+                sparse,
+                logger,
+                logical_size=flashed_size,
             )
             for junk in (sparse, profile.work_dir / f"{part.name}.raw.img"):
                 try:

@@ -57,6 +57,26 @@ class ProfileMetadataTest(unittest.TestCase):
         self.assertIsNone(profile.expansion)
         self.assertFalse(profile.enable_root_menu)
         self.assertFalse(profile.post_flash_id)
+        self.assertEqual(profile.wipe_super_image, "super_empty_16g.img")
+        self.assertIsNone(profile.wipe_super_dat)
+
+    def test_accepts_dat_only_wipe_super(self) -> None:
+        profile = self._load(
+            BASE_PROFILE.replace(
+                "[dynamic]\n",
+                '[dynamic]\nwipe_super_dat = "super_empty"\n',
+            )
+        )
+        self.assertIsNone(profile.wipe_super_image)
+        self.assertEqual(profile.wipe_super_dat, "super_empty")
+
+    def test_rejects_multiple_wipe_super_sources(self) -> None:
+        invalid = BASE_PROFILE.replace(
+            "[dynamic]\n",
+            '[dynamic]\nwipe_super_image = "super.img"\nwipe_super_dat = "super_empty"\n',
+        )
+        with self.assertRaisesRegex(ProfileError, "只能配置一个"):
+            self._load(invalid)
 
     def test_requires_package_metadata(self) -> None:
         with self.assertRaises(ProfileError):

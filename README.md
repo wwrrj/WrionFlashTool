@@ -34,7 +34,7 @@ ROM 根目录/
 - 系统更新：保留 `userdata`/`metadata`，仍建议提前备份。
 - Root 镜像：由 `enable_root_menu` 控制，只接受带 `ANDROID!` 头的 `boot.img` 或 `init_boot.img`。
 - 物理扩容：只有 `[expansion].enabled = true` 时显示；扩容和恢复都会清空数据，并要求独立确认。
-- ColorOS ID 后处理：默认关闭；仅特定包需要时设置 `post_flash_id = true`。
+- ColorOS ID 后处理：默认关闭；仅特定包需要时设置 `post_flash_id = true`。启用后会跳过包内占位 `mi_ext`，刷完 ROM 再刷独立 ID 补丁 zip（含 `images/super/mi_ext.new.dat` + `transfer.list`，不是单独的 `.img`）。主菜单也会出现「刷入 / 更新 ID 补丁」。
 
 ## 发包前生成配置
 
@@ -50,7 +50,7 @@ python tools\generate_profile.py `
   --note "首次刷入会清空全部用户数据"
 ```
 
-脚本会扫描 `images/*.img` 和 `super/*.new.dat`，读取 `transfer.list` 计算动态分区大小，将当天日期写入 `build_date`，生成 `META-INF/com/android/flash_profile.toml`，并执行完整性校验。已有配置默认不会覆盖，确认重建时添加 `--force`。
+脚本会扫描 `images/*.img` 和 `super/*.new.dat`，读取 `transfer.list` 计算动态分区大小，将当天日期写入 `build_date`，生成 `META-INF/com/android/flash_profile.toml`，并执行完整性校验。空 super 既可使用旧版 `super_empty*.img`，也可只提供 `super/super_empty.new.dat` 与 `super_empty.transfer.list`；DAT 会在运行时还原为临时刷写源。已有配置默认不会覆盖，确认重建时添加 `--force`。
 
 无法可靠判断的镜像会导致生成失败。使用显式映射解决，不能依赖猜测：
 

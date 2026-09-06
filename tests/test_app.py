@@ -12,21 +12,25 @@ from harusora_flash_tool.device import DeviceError
 
 class MainMenuTest(unittest.TestCase):
     def test_optional_entries_are_hidden(self) -> None:
-        profile = SimpleNamespace(enable_root_menu=False, expansion=None)
+        profile = SimpleNamespace(enable_root_menu=False, expansion=None, post_flash_id=False)
         items, actions = app.main_menu_entries(profile)
         self.assertEqual(len(items), len(actions))
         self.assertNotIn("root", actions)
         self.assertNotIn("expansion", actions)
+        self.assertNotIn("id", actions)
 
     def test_optional_entries_are_shown_when_enabled(self) -> None:
         profile = SimpleNamespace(
             enable_root_menu=True,
             expansion=SimpleNamespace(enabled=True),
+            post_flash_id=True,
         )
         items, actions = app.main_menu_entries(profile)
         self.assertEqual(len(items), len(actions))
         self.assertIn("root", actions)
         self.assertIn("expansion", actions)
+        self.assertIn("id", actions)
+        self.assertEqual(items[actions.index("id")], "刷入 / 更新 ID 补丁（mi_ext zip）")
 
 
 class FlashUiTest(unittest.TestCase):
