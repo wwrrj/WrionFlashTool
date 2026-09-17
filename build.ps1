@@ -5,7 +5,12 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 $OutDir = Join-Path $PSScriptRoot "dist"
+$IconIco = Join-Path $PSScriptRoot "assets\harusora.ico"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+if (-not (Test-Path $IconIco)) {
+    throw "Missing application icon: $IconIco"
+}
 
 function Test-Cmd($Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
@@ -42,6 +47,7 @@ if ($hasNuitka) {
         --output-dir="$OutDir" `
         --output-filename=HarusoraFlashTool.exe `
         --windows-console-mode=force `
+        --windows-icon-from-ico="$IconIco" `
         --product-name="HarusoraFlashTool" `
         --file-description="Harusora profile-driven Android fastboot flasher" `
         --company-name="Harusora Team" `
@@ -66,6 +72,7 @@ if ($hasNuitka) {
         --clean `
         --onefile `
         --console `
+        --icon "$IconIco" `
         --name HarusoraFlashTool `
         --distpath "$OutDir" `
         --workpath (Join-Path $OutDir "build") `

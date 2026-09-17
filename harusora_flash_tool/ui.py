@@ -3,14 +3,52 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 _package_info = ""
+_WINDOWS_ICON_HANDLE = 0
 
 
 def configure_banner(package_info: str) -> None:
     """Set ROM package attribution displayed on every interactive screen."""
     global _package_info
     _package_info = package_info.strip()
+
+
+def _windows_icon_path() -> Path | None:
+    if getattr(sys, "frozen", False):
+        return None
+    candidate = Path(__file__).resolve().parent.parent / "assets" / "harusora.ico"
+    return candidate if candidate.is_file() else None
+
+
+def apply_windows_app_icon() -> None:
+    """Set the console window icon when running from source."""
+    global _WINDOWS_ICON_HANDLE
+    if sys.platform != "win32" or _WINDOWS_ICON_HANDLE:
+        return
+    icon = _windows_icon_path()
+    if icon is None:
+        return
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        hwnd = kernel32.GetConsoleWindow()
+        if not hwnd:
+            return
+        image_icon = 1
+        lr_loadfromfile = 0x0010
+        handle = user32.LoadImageW(None, str(icon), image_icon, 0, 0, lr_loadfromfile)
+        if not handle:
+            return
+        _WINDOWS_ICON_HANDLE = handle
+        wm_seticon = 0x0080
+        user32.SendMessageW(hwnd, wm_seticon, 0, handle)
+        user32.SendMessageW(hwnd, wm_seticon, 1, handle)
+    except Exception:
+        pass
 
 
 def enable_windows_ansi() -> None:
@@ -31,6 +69,7 @@ def enable_windows_ansi() -> None:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
     except Exception:
         pass
+    apply_windows_app_icon()
 
 
 def set_title(title: str) -> None:
