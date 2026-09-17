@@ -71,6 +71,7 @@ class DeviceSession:
                 "boot",
                 "flashing",
                 "oem",
+                "snapshot-update",
                 "delete-logical-partition",
                 "create-logical-partition",
                 "resize-logical-partition",

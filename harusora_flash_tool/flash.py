@@ -5,21 +5,30 @@ import shutil
 from collections.abc import Callable
 from pathlib import Path
 
-from .config import FlashProfile, ImageOp
+from .config import DynamicPartition, FlashProfile, ImageOp
 from .device import DeviceError, DeviceSession, EnvReport, parse_size
 from .log import Logger
 from .package import (
     PackageError,
     is_preserved_data_partition,
     read_package_anti,
+    resolve_wipe_super_source,
     validate_package,
 )
 from .process import run_process
 from .sdat2img import SdatError, sdat2img
 from .sparse import (
+    build_android_sparse,
     build_wipe_super_image,
     is_android_sparse,
+    sparse_logical_size,
 )
+
+# Xiaomi/Qcom fastbootd returns EOVERFLOW ("Value too large for defined data type")
+# when writing tiny logical images such as mi_ext (~160KiB). Pad to 1MiB and
+# skip img2simg below 4MiB so the write is a plain raw image.
+MIN_DYNAMIC_IMAGE_BYTES = 1024 * 1024
+SKIP_SPARSE_BELOW_BYTES = 4 * 1024 * 1024
 
 
 class FlashError(Exception):
@@ -239,6 +248,17 @@ def convert_dat_to_sparse(
         print(f"  │  {name} 已补零到 {target_size} 字节（避免 fastbootd 过小分区失败）")
         out_size = target_size
 
+    if target_size < SKIP_SPARSE_BELOW_BYTES:
+        if raw.resolve() != sparse.resolve():
+            shutil.copyfile(raw, sparse)
+        try:
+            raw.unlink(missing_ok=True)
+        except OSError:
+            pass
+        logger.write(f"{name} kept as raw {target_size} bytes (skip img2simg)")
+        print(f"  │  {name} 较小，按 raw {target_size} 字节刷入（跳过 img2simg）")
+        return target_size
+
     for attempt in range(1, 4):
         logger.write(f"img2simg {conversion_input} {sparse} (attempt {attempt})")
         print(f"  │  img2simg：{name} → sparse…")
@@ -342,6 +362,187 @@ def prepare_wipe_super_source(
     raise FlashError("线刷配置未指定空 super 的 IMG 或 DAT")
 
 
+def _logical_create_size(part: DynamicPartition) -> int:
+    size = part.pad_to_bytes or part.dat_bytes
+    if size < MIN_DYNAMIC_IMAGE_BYTES:
+        size = MIN_DYNAMIC_IMAGE_BYTES
+    if size % 4096:
+        size += 4096 - (size % 4096)
+    return size
+
+
+def _logical_name_variants(profile: FlashProfile) -> list[str]:
+    suffix = profile.slot_suffix or "_a"
+    other = "_b" if suffix == "_a" else "_a" if suffix == "_b" else ""
+    names: list[str] = []
+    seen: set[str] = set()
+    for part in profile.dynamic_partitions:
+        bases = [f"{part.name}{suffix}", part.name]
+        if other:
+            bases.insert(1, f"{part.name}{other}")
+        for base in bases:
+            for candidate in (base, f"{base}-cow", f"{base}_cow"):
+                if candidate not in seen:
+                    seen.add(candidate)
+                    names.append(candidate)
+    return names
+
+
+def _logical_partition_present(session: DeviceSession, name: str) -> bool:
+    flag = session.getvar(f"is-logical:{name}", allow_missing=True)
+    if flag is not None and flag.lower() == "yes":
+        return True
+    size = session.getvar(f"partition-size:{name}", allow_missing=True)
+    return bool(size)
+
+
+def _discovered_logical_partitions(session: DeviceSession) -> list[str]:
+    result = session.run_fastboot(["getvar", "all"], allow_failure=True)
+    found = re.findall(
+        r"is-logical:([A-Za-z0-9_.-]+):\s*yes",
+        result.text or "",
+        flags=re.I,
+    )
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in found:
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def _cancel_virtual_ab_snapshot(session: DeviceSession, logger: Logger) -> None:
+    result = session.run_fastboot(
+        ["snapshot-update", "cancel"],
+        label="取消 Virtual A/B 快照",
+        allow_failure=True,
+        show_output=True,
+    )
+    if result.code == 0:
+        logger.write("snapshot-update cancel OK")
+    else:
+        logger.write(f"snapshot-update cancel skipped: {result.text}")
+
+
+def _delete_logical_partitions(
+    session: DeviceSession,
+    names: list[str],
+    logger: Logger,
+) -> None:
+    for name in names:
+        result = session.run_fastboot(
+            ["delete-logical-partition", name],
+            label=f"delete-logical-partition {name}",
+            show_output=True,
+            allow_failure=True,
+        )
+        if result.code == 0:
+            logger.write(f"deleted logical {name}")
+
+
+def _empty_super_logical_bytes(profile: FlashProfile, source: Path, transfer: Path | None) -> int:
+    if transfer is not None:
+        lines = transfer.read_text(encoding="utf-8", errors="replace").splitlines()
+        if len(lines) >= 2:
+            return int(lines[1].strip()) * 4096
+    logical = sparse_logical_size(source)
+    if logical:
+        return logical
+    return profile.minimum_super_bytes
+
+
+def _prepare_empty_super_flash_image(profile: FlashProfile, logger: Logger) -> Path:
+    """Image for `fastboot flash super` in bootloader. Prefer .img; never emit DAT."""
+    source, transfer = resolve_wipe_super_source(profile)
+    if transfer is None:
+        if not source.is_file():
+            raise FlashError(f"找不到空 super 镜像：{source}")
+        logger.write(f"empty super flash image {source} sparse={is_android_sparse(source)}")
+        print(f"  │  使用空 super 镜像 {source.name}")
+        return source
+    if not source.is_file() or not transfer.is_file():
+        raise FlashError(
+            "找不到空 super 镜像。请在 images/ 放置 super_empty_16g.img，"
+            f"或提供 {source.name} 与对应 transfer.list。"
+        )
+    profile.work_dir.mkdir(parents=True, exist_ok=True)
+    prefix_path = profile.work_dir / f"{source.stem}.prefix.img"
+    logger.write(f"sdat2img prefix {transfer} {source} -> {prefix_path}")
+    print(f"  │  从 {source.name} 生成空 super 稀疏镜像（不展开完整 super）…")
+    sdat2img(transfer, source, prefix_path, max_output_bytes=16 * 1024 * 1024)
+    prefix = prefix_path.read_bytes()
+    total = _empty_super_logical_bytes(profile, source, transfer)
+    sparse = profile.work_dir / "super_empty.sparse.img"
+    build_android_sparse(prefix, total, sparse)
+    logger.write(f"built empty super sparse {sparse} logical={total} prefix={len(prefix)}")
+    return sparse
+
+
+def _prepare_wipe_super_source(profile: FlashProfile, logger: Logger) -> Path:
+    source, transfer = resolve_wipe_super_source(profile)
+    if transfer is None:
+        if not source.is_file():
+            raise FlashError(f"找不到空 super 镜像：{source}")
+        return source
+    if not source.is_file() or not transfer.is_file():
+        raise FlashError(
+            "找不到空 super 镜像。需要 images 下的 wipe-super 镜像，"
+            f"或 {source.name} 与对应 transfer.list。"
+        )
+    profile.work_dir.mkdir(parents=True, exist_ok=True)
+    prefix = profile.work_dir / f"{source.stem}.prefix.img"
+    logger.write(f"sdat2img prefix {transfer} {source} -> {prefix}")
+    print(f"  │  从 {source.name} 提取 wipe-super 元数据（不展开完整 super）…")
+    sdat2img(transfer, source, prefix, max_output_bytes=16 * 1024 * 1024)
+    return prefix
+
+
+def _ensure_bootloader(session: DeviceSession) -> None:
+    us = session.getvar("is-userspace", allow_missing=True)
+    if us != "yes":
+        return
+    print("  │  当前为 fastbootd，返回 bootloader 以刷入物理 super…")
+    session.run_fastboot(
+        ["reboot", "bootloader"],
+        label="返回 bootloader",
+        show_output=True,
+    )
+    if not session.dry_run:
+        session.wait_for_mode(False)
+
+
+def _flash_empty_super_bootloader(
+    session: DeviceSession,
+    image: Path,
+    logger: Logger,
+) -> bool:
+    """Flash empty super to the physical partition from bootloader."""
+    _ensure_bootloader(session)
+    print("  │  在 bootloader 刷入空 super（物理分区）…")
+    session.run_fastboot(
+        ["erase", "super"],
+        label="擦除 super",
+        allow_failure=True,
+        show_output=True,
+        timeout=180,
+    )
+    result = session.run_fastboot(
+        ["flash", "super", str(image)],
+        label=f"刷入 super ← {image.name}",
+        allow_failure=True,
+        show_output=True,
+        timeout=300,
+    )
+    if result.code == 0:
+        logger.write(f"bootloader flash super OK: {image}")
+        print("  │  空 super 已写入物理分区")
+        return True
+    logger.write(f"bootloader flash super failed: {result.text}")
+    print("  │  bootloader 刷空 super 未成功，将尝试 fastbootd 方案…")
+    return False
+
+
 def _wipe_or_init_super(
     profile: FlashProfile,
     session: DeviceSession,
@@ -351,10 +552,10 @@ def _wipe_or_init_super(
     """
     Initialize empty super in fastbootd.
 
-    Prefer a rebuilt wipe-super image (geometry at offset 0). flash super of a
-    sparse full empty often returns 'No such file or directory' on Xiaomi
-    fastbootd — we still retry briefly, then fall back to creating logical
-    partitions from the profile so flashing can continue.
+    Prefer a rebuilt wipe-super image (host LP layout: geometry at 0, metadata
+    at 8192). flash super of a sparse full empty often returns 'No such file or
+    directory' on Xiaomi fastbootd — we still retry briefly, then fall back to
+    creating logical partitions from the profile so flashing can continue.
     """
     import time
 
@@ -374,10 +575,12 @@ def _wipe_or_init_super(
         time.sleep(3)
         session.wait_for_mode(True, timeout_seconds=90)
 
+    _cancel_virtual_ab_snapshot(session, logger)
+
     profile.work_dir.mkdir(parents=True, exist_ok=True)
     candidates: list[tuple[str, Path]] = []
 
-    # 1) Proper wipe-super metadata image (fix gDla @0)
+    # 1) Proper wipe-super metadata image (device layout → host image layout)
     wipe_meta = profile.work_dir / "super_empty_wipe.img"
     try:
         build_wipe_super_image(wipe_img, wipe_meta)
@@ -391,7 +594,10 @@ def _wipe_or_init_super(
         logger.write(f"build_wipe_super_image failed: {exc!r}")
         print(f"  │  生成 wipe-super 镜像失败：{exc}")
         if not is_android_sparse(wipe_img):
-            candidates.append(("wipe-super", wipe_img))
+            with wipe_img.open("rb") as fh:
+                head = fh.read(4)
+            if head == b"gDla":
+                candidates.append(("wipe-super", wipe_img))
 
     # 2) flash sparse super (may work on some builds; often fails on Xiaomi)
     if is_android_sparse(wipe_img):
@@ -449,20 +655,28 @@ def _create_logical_partitions_from_profile(
     session: DeviceSession,
     logger: Logger,
 ) -> bool:
-    """Best-effort: delete+create each logical partition so flash can proceed."""
+    """Delete every logical partition first, then recreate the target slot.
+
+    Returning true only when ALL required partitions exist avoids flashing a
+    name that was deleted and never recreated (fastbootd: No such file or
+    directory).
+    """
     if not profile.dynamic_partitions:
         return False
-    ok_any = False
     suffix = profile.slot_suffix or "_a"
+    to_delete = _discovered_logical_partitions(session)
+    known = set(to_delete)
+    for name in _logical_name_variants(profile):
+        if name not in known:
+            to_delete.append(name)
+            known.add(name)
+    print("  │  删除现有逻辑分区（含另一槽位与 cow）以释放 super 空间…")
+    _delete_logical_partitions(session, to_delete, logger)
+
+    failed: list[str] = []
     for part in profile.dynamic_partitions:
         name = f"{part.name}{suffix}"
-        size = logical_flash_size(part.pad_to_bytes or part.dat_bytes)
-        session.run_fastboot(
-            ["delete-logical-partition", name],
-            label=f"delete-logical-partition {name}",
-            show_output=True,
-            allow_failure=True,
-        )
+        size = _logical_create_size(part)
         result = session.run_fastboot(
             ["create-logical-partition", name, str(size)],
             label=f"create-logical-partition {name} {size}",
@@ -470,11 +684,117 @@ def _create_logical_partitions_from_profile(
             allow_failure=True,
         )
         if result.code == 0:
-            ok_any = True
             logger.write(f"created logical {name} size={size}")
+            continue
+        text = result.text or f"exit {result.code}"
+        recovered = False
+        if re.search(r"already|exists", text, re.I):
+            resized = session.run_fastboot(
+                ["resize-logical-partition", name, str(size)],
+                label=f"resize-logical-partition {name} {size}",
+                show_output=True,
+                allow_failure=True,
+            )
+            if resized.code == 0:
+                logger.write(f"resized logical {name} size={size}")
+                recovered = True
+        if not recovered:
+            logger.write(f"create logical {name} failed: {text}")
+            first = text.splitlines()[0] if text else "failed"
+            failed.append(f"{name}（{first}）")
+    if failed:
+        print("  │  未能创建：" + "、".join(failed))
+        return False
+    return True
+
+
+def _ensure_logical_partition(
+    profile: FlashProfile,
+    session: DeviceSession,
+    logger: Logger,
+    part: DynamicPartition,
+) -> None:
+    name = f"{part.name}{profile.slot_suffix}"
+    if session.dry_run or _logical_partition_present(session, name):
+        return
+    size = _logical_create_size(part)
+    print(f"  │  逻辑分区 {name} 不存在，正在创建（{size} 字节）…")
+    logger.write(f"ensure logical {name} size={size}")
+    result = session.run_fastboot(
+        ["create-logical-partition", name, str(size)],
+        label=f"create-logical-partition {name} {size}",
+        show_output=True,
+        allow_failure=True,
+    )
+    if result.code == 0 and _logical_partition_present(session, name):
+        return
+    raise FlashError(
+        f"逻辑分区 {name} 不存在，无法刷入。\n"
+        f"create-logical-partition 结果：{result.text or f'exit {result.code}'}"
+    )
+
+
+def _flash_logical_image(
+    session: DeviceSession,
+    target: str,
+    image: Path,
+    part: DynamicPartition,
+    logger: Logger,
+) -> None:
+    size = _logical_create_size(part)
+    if image.is_file() and image.stat().st_size <= SKIP_SPARSE_BELOW_BYTES:
+        session.run_fastboot(
+            ["resize-logical-partition", target, str(size)],
+            label=f"resize-logical-partition {target} {size}",
+            show_output=True,
+            allow_failure=True,
+        )
+    result = session.run_fastboot(
+        ["flash", target, str(image)],
+        label=f"刷入 {target}",
+        show_output=True,
+        allow_failure=True,
+    )
+    if result.code == 0:
+        return
+    text = result.text or f"exit {result.code}"
+    if re.search(r"No such file or directory", text, re.I):
+        raise FlashError(
+            f"刷入 {target} 失败：fastbootd 中不存在逻辑分区 {target}。\n"
+            "空 super 未正确初始化，且重新创建该分区失败。\n"
+            f"{text}"
+        )
+    if re.search(r"Value too large for defined data type", text, re.I):
+        print(f"  │  {target} 遇到过小分区错误，补齐到 {size} 字节后重试…")
+        logger.write(f"{target} EOVERFLOW, retry padded {size}")
+        if is_android_sparse(image):
+            raise DeviceError(
+                f"刷入 {target} 失败（{result.code}）：flash {target} {image}\n{text}"
+            )
+        padded = image.with_name(f"{image.stem}.padded.img")
+        data = image.read_bytes()
+        if len(data) < size:
+            padded.write_bytes(data + b"\x00" * (size - len(data)))
         else:
-            logger.write(f"create logical {name} failed: {result.text}")
-    return ok_any
+            padded = image
+        session.run_fastboot(
+            ["resize-logical-partition", target, str(size)],
+            label=f"resize-logical-partition {target} {size}",
+            show_output=True,
+            allow_failure=True,
+        )
+        retry = session.run_fastboot(
+            ["flash", target, str(padded)],
+            label=f"刷入 {target}（padded）",
+            show_output=True,
+            allow_failure=True,
+        )
+        if retry.code == 0:
+            return
+        text = retry.text or text
+    raise DeviceError(
+        f"刷入 {target} 失败（{result.code}）：flash {target} {image}\n{text}"
+    )
 
 
 def flash_dynamic_partition_image(
@@ -522,12 +842,19 @@ def flash_dynamic_partitions(
     session: DeviceSession,
     logger: Logger,
 ) -> None:
+    empty_super = _prepare_empty_super_flash_image(profile, logger)
+    flashed_physical = _flash_empty_super_bootloader(session, empty_super, logger)
+
     session.run_fastboot(["reboot", "fastboot"], label="重启到 fastbootd", show_output=True)
     if not session.dry_run:
         session.wait_for_mode(True)
 
-    wipe_img = prepare_wipe_super_source(profile, session, logger)
-    _wipe_or_init_super(profile, session, logger, wipe_img)
+    if flashed_physical:
+        print("  │  空 super 已在 bootloader 写入，跳过 wipe-super")
+        _cancel_virtual_ab_snapshot(session, logger)
+    else:
+        wipe_img = _prepare_wipe_super_source(profile, logger)
+        _wipe_or_init_super(profile, session, logger, wipe_img)
 
     if profile.work_dir.exists():
         shutil.rmtree(profile.work_dir, ignore_errors=True)
@@ -555,7 +882,7 @@ def flash_dynamic_partitions(
                 part.name,
                 dat,
                 sparse,
-                part.pad_to_bytes,
+                _logical_create_size(part),
                 logger,
             )
             flash_dynamic_partition_image(

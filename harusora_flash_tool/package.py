@@ -25,6 +25,43 @@ def _image_path(profile: FlashProfile, op: ImageOp) -> Path | None:
     return profile.images_dir / op.file
 
 
+def discover_empty_super_image(profile: FlashProfile) -> Path | None:
+    """Return a ready-to-flash empty super .img if one exists. Never a DAT."""
+    if profile.wipe_super_image:
+        configured = profile.images_dir / profile.wipe_super_image
+        if configured.is_file():
+            return configured
+    matches = sorted(
+        path for path in profile.images_dir.glob("super_empty*.img") if path.is_file()
+    )
+    if not matches:
+        return None
+    for match in matches:
+        if "16g" in match.stem.lower():
+            return match
+    return matches[0]
+
+
+def resolve_wipe_super_source(profile: FlashProfile) -> tuple[Path, Path | None]:
+    """Return (image_or_dat, transfer_list_or_None).
+
+    Prefer a super_empty*.img so it can be flashed to the physical super
+    partition. DAT+transfer is only a fallback. transfer_list is set when the
+    source is a DAT pair.
+    """
+    image = discover_empty_super_image(profile)
+    if image is not None:
+        return image, None
+    stem = profile.wipe_super_dat or "super_empty"
+    dat = profile.super_dir / f"{stem}.new.dat"
+    transfer = profile.super_dir / f"{stem}.transfer.list"
+    if dat.is_file() and transfer.is_file():
+        return dat, transfer
+    if profile.wipe_super_image:
+        return profile.images_dir / profile.wipe_super_image, None
+    return dat, transfer
+
+
 def collect_required_paths(
     profile: FlashProfile,
     *,
@@ -37,11 +74,10 @@ def collect_required_paths(
     if profile.dynamic_partitions:
         required.append(profile.img2simg)
         required.append(profile.cygwin_dll)
-        if profile.wipe_super_dat:
-            required.append(profile.super_dir / f"{profile.wipe_super_dat}.new.dat")
-            required.append(profile.super_dir / f"{profile.wipe_super_dat}.transfer.list")
-        elif profile.wipe_super_image:
-            required.append(profile.images_dir / profile.wipe_super_image)
+        wipe_file, wipe_transfer = resolve_wipe_super_source(profile)
+        required.append(wipe_file)
+        if wipe_transfer is not None:
+            required.append(wipe_transfer)
 
     if profile.flash_crc_lists:
         # CRC files optional at presence check only if options say so — keep soft:
