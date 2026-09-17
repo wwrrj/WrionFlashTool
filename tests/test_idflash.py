@@ -201,7 +201,7 @@ class SparseTransportPaddingTest(unittest.TestCase):
         sparse = work / "product.img"
         _write_transfer(transfer, 512)
         dat.write_bytes(b"data")
-        raw_bytes = 2 * 1024 * 1024
+        raw_bytes = 5 * 1024 * 1024
         calls = 0
 
         def fake_sdat2img(_transfer, _dat, raw, *, progress):

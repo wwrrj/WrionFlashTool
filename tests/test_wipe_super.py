@@ -18,10 +18,12 @@ class DatOnlyWipeSuperTest(unittest.TestCase):
         super_dir = root / "super"
         work_dir = root / "work"
         super_dir.mkdir()
-        payload = b"gDla" + bytes(4096 - 4)
+        geom = b"gDla" + bytes(4092)
+        meta = b"0PLA" + bytes(4092)
+        payload = geom + geom + meta
         (super_dir / "super_empty.new.dat").write_bytes(payload)
         (super_dir / "super_empty.transfer.list").write_text(
-            "4\n2\n0\n0\nnew 2,0,1\n", encoding="utf-8"
+            "4\n3\n0\n0\nnew 2,0,3\n", encoding="utf-8"
         )
         profile = SimpleNamespace(
             wipe_super_dat="super_empty",
@@ -32,7 +34,7 @@ class DatOnlyWipeSuperTest(unittest.TestCase):
         session = SimpleNamespace(dry_run=False)
         source = prepare_wipe_super_source(profile, session, MagicMock())
 
-        self.assertEqual(source.stat().st_size, 8192)
+        self.assertEqual(source.stat().st_size, 12288)
         self.assertEqual(source.read_bytes()[:4], b"gDla")
         wipe = build_wipe_super_image(source, work_dir / "wipe.img")
         wipe_bytes = wipe.read_bytes()
