@@ -242,7 +242,8 @@ def _pick_image_in_dir(folder: Path) -> Path:
 
 def _is_sparse(p: Path) -> bool:
     try:
-        return p.read_bytes()[:4] == SPARSE_MAGIC
+        with p.open("rb") as fh:
+            return fh.read(4) == SPARSE_MAGIC
     except OSError:
         return False
 
