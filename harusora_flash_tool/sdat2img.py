@@ -64,9 +64,13 @@ def sdat2img(
     *,
     block_size: int = 4096,
     progress=None,
+    max_output_bytes: int | None = None,
 ) -> int:
     """
     Build a raw partition image. Returns output size in bytes.
+
+    max_output_bytes writes only a prefix (still consuming the full DAT stream)
+    so super_empty metadata can be extracted without materializing a 16GiB file.
     """
     lines = transfer_list.read_text(encoding="utf-8", errors="replace").splitlines()
     if len(lines) < 4:
@@ -93,10 +97,12 @@ def sdat2img(
 
     output_img.parent.mkdir(parents=True, exist_ok=True)
     out_size = total_blocks * block_size
+    prefix_only = max_output_bytes is not None
+    write_limit = out_size if max_output_bytes is None else max(0, min(out_size, max_output_bytes))
 
-    # Pre-allocate sparse file on Windows via seek
+    # Pre-allocate sparse file on Windows via seek (skip when extracting a prefix)
     with output_img.open("wb") as out_fh, new_data.open("rb") as dat_fh:
-        if out_size > 0:
+        if not prefix_only and out_size > 0:
             out_fh.seek(out_size - 1)
             out_fh.write(b"\0")
             out_fh.seek(0)
@@ -150,8 +156,13 @@ def sdat2img(
                         raise SdatError(
                             f"new.dat truncated at offset {dat_pos}: need {nbytes}, got {len(data)}"
                         )
-                    out_fh.seek(start * block_size)
-                    out_fh.write(data)
+                    dest = start * block_size
+                    if write_limit <= 0 or dest >= write_limit:
+                        pass
+                    else:
+                        chunk = data[: write_limit - dest]
+                        out_fh.seek(dest)
+                        out_fh.write(chunk)
                     dat_pos += nbytes
                     _maybe_report()
                 continue
@@ -175,4 +186,4 @@ def sdat2img(
                     f"new.dat has {more} unexpected trailing bytes after applying transfer.list"
                 )
 
-    return out_size
+    return write_limit if prefix_only else out_size
