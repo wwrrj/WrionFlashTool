@@ -1,14 +1,27 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-.venv/
-build/
+# Rust and Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.pnpm-store/
+
+# Local build output
 dist/
-*.spec
 *.exe
+
+# ROM runtime data
 work/
 logs/
 backup/
 _idpatch_extract/
 AGENTS.md
+
+# Python cache left by older tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
