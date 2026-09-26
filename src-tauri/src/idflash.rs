@@ -1,11 +1,14 @@
-use std::fs::File;
-use std::path::{Path, PathBuf};
-use anyhow::{anyhow, bail, Context, Result};
 use crate::config::FlashProfile;
 use crate::device::DeviceSession;
-use crate::flash::{is_overflow_flash_error, logical_flash_size, recreate_logical_partition, MIN_LOGICAL_FLASH_BYTES};
+use crate::flash::{
+    is_overflow_flash_error, logical_flash_size, recreate_logical_partition,
+    MIN_LOGICAL_FLASH_BYTES,
+};
 use crate::sdat2img::sdat2img;
 use crate::sparse::is_android_sparse;
+use anyhow::{anyhow, bail, Context, Result};
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
 pub fn ensure_fastbootd(session: &DeviceSession) -> Result<()> {
     if let Ok(Some(us)) = session.getvar("is-userspace", true) {
@@ -32,7 +35,11 @@ pub fn discover_id_candidates(rom_root: &Path) -> Vec<PathBuf> {
             let p = entry.path();
             if p.is_file() {
                 let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+                let ext = p
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
                 if (ext == "zip" || ext == "img") && re_id.is_match(name) {
                     candidates.push(p);
                 }
@@ -46,7 +53,11 @@ pub fn resolve_id_input(input_path: &Path, work_dir: &Path) -> Result<PathBuf> {
     if !input_path.is_file() {
         bail!("指定的 ID 文件不存在：{:?}", input_path);
     }
-    let ext = input_path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+    let ext = input_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
     if ext == "img" {
         return Ok(input_path.to_path_buf());
     }
@@ -55,10 +66,9 @@ pub fn resolve_id_input(input_path: &Path, work_dir: &Path) -> Result<PathBuf> {
     }
 
     std::fs::create_dir_all(work_dir)?;
-    let file = File::open(input_path)
-        .with_context(|| format!("无法打开 zip：{:?}", input_path))?;
-    let mut archive = zip::ZipArchive::new(file)
-        .with_context(|| format!("无效 zip 压缩包：{:?}", input_path))?;
+    let file = File::open(input_path).with_context(|| format!("无法打开 zip：{:?}", input_path))?;
+    let mut archive =
+        zip::ZipArchive::new(file).with_context(|| format!("无效 zip 压缩包：{:?}", input_path))?;
 
     let mut dat_file: Option<String> = None;
     let mut tf_file: Option<String> = None;
@@ -113,11 +123,7 @@ fn pad_image_file(src: &Path, work_dir: &Path, target: u64) -> Result<PathBuf> {
     Ok(out)
 }
 
-pub fn flash_mi_ext_image(
-    session: &DeviceSession,
-    image: &Path,
-    work_dir: &Path,
-) -> Result<()> {
+pub fn flash_mi_ext_image(session: &DeviceSession, image: &Path, work_dir: &Path) -> Result<()> {
     if !image.is_file() {
         bail!("ID 镜像不存在：{:?}", image);
     }
@@ -131,7 +137,12 @@ pub fn flash_mi_ext_image(
     };
 
     let size = logical_flash_size(flash_path.metadata()?.len(), None);
-    session.logger.write(&format!("  ID 镜像：{:?}  ({} 字节，逻辑分区 {})", flash_path, flash_path.metadata()?.len(), size));
+    session.logger.write(&format!(
+        "  ID 镜像：{:?}  ({} 字节，逻辑分区 {})",
+        flash_path,
+        flash_path.metadata()?.len(),
+        size
+    ));
 
     for part in &["mi_ext_a", "mi_ext_b"] {
         recreate_logical_partition(session, part, size)?;
@@ -147,7 +158,9 @@ pub fn flash_mi_ext_image(
         }
 
         if is_overflow_flash_error(&res.text) && !is_sparse {
-            session.logger.write(&format!("  {} 仍过小，尝试 8MiB 补零…", part));
+            session
+                .logger
+                .write(&format!("  {} 仍过小，尝试 8MiB 补零…", part));
             let padded = pad_image_file(&flash_path, work_dir, 8 * 1024 * 1024)?;
             let retry_size = logical_flash_size(padded.metadata()?.len(), None);
             recreate_logical_partition(session, part, retry_size)?;
@@ -164,7 +177,9 @@ pub fn flash_mi_ext_image(
         }
 
         if part.ends_with("_b") {
-            session.logger.write(&format!("  警告：{} 跳过: {}", part, res.text));
+            session
+                .logger
+                .write(&format!("  警告：{} 跳过: {}", part, res.text));
             continue;
         }
 
@@ -176,10 +191,12 @@ pub fn flash_mi_ext_image(
 }
 
 pub fn format_userdata_metadata(session: &DeviceSession) -> Result<()> {
-    session.logger.write("  格式化 Data（erase userdata / metadata）…");
-    for part in &["userdata", "metadata"] {
-        let _ = session.run_fastboot(&["erase", part], Some(&format!("erase {}", part)), true);
-    }
+    session.logger.write("  格式化 Data（fastboot -w）…");
+    session.run_fastboot(
+        &["-w"],
+        Some("fastboot -w 格式化 userdata / metadata"),
+        false,
+    )?;
     Ok(())
 }
 
@@ -192,10 +209,15 @@ pub fn run_id_flash(
 ) -> Result<()> {
     let chosen_serial = session.serial.clone();
     session.select_device(chosen_serial.as_deref())?;
-    let product = session.getvar("product", false)?
+    let product = session
+        .getvar("product", false)?
         .ok_or_else(|| anyhow!("无法读取机型 product 代号"))?;
     if !profile.codenames.iter().any(|c| c == &product) {
-        bail!("机型不匹配：检测到 {}，支持：{}", product, profile.codenames.join(", "));
+        bail!(
+            "机型不匹配：检测到 {}，支持：{}",
+            product,
+            profile.codenames.join(", ")
+        );
     }
 
     ensure_fastbootd(session)?;

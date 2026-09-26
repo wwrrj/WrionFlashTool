@@ -1,11 +1,11 @@
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
-use std::thread;
+use crate::logger::Logger;
 use anyhow::{anyhow, bail, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use crate::logger::Logger;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessResult {
@@ -54,9 +54,12 @@ pub fn parse_size(value: &str) -> Result<u64> {
     let trimmed = value.trim();
     if trimmed.to_lowercase().starts_with("0x") {
         let hex_str = &trimmed[2..];
-        u64::from_str_radix(hex_str, 16).map_err(|e| anyhow!("无效十六进制大小: {:?}: {}", trimmed, e))
+        u64::from_str_radix(hex_str, 16)
+            .map_err(|e| anyhow!("无效十六进制大小: {:?}: {}", trimmed, e))
     } else {
-        trimmed.parse::<u64>().map_err(|e| anyhow!("无效十进制大小: {:?}: {}", trimmed, e))
+        trimmed
+            .parse::<u64>()
+            .map_err(|e| anyhow!("无效十进制大小: {:?}: {}", trimmed, e))
     }
 }
 
@@ -72,11 +75,7 @@ pub fn run_process(
         .collect();
 
     if let Some(lg) = logger {
-        let cmd_str = format!(
-            "{} {}",
-            command_path.display(),
-            normalized_args.join(" ")
-        );
+        let cmd_str = format!("{} {}", command_path.display(), normalized_args.join(" "));
         lg.write(&cmd_str);
     }
 
@@ -96,7 +95,8 @@ pub fn run_process(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let output = cmd.output()
+    let output = cmd
+        .output()
         .map_err(|e| anyhow!("执行程序失败 {:?}: {}", file_path, e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -174,7 +174,7 @@ impl DeviceSession {
         if self.dry_run && !args.is_empty() && args[0] != "devices" && args[0] != "getvar" {
             let mutating = matches!(
                 args[0],
-                "flash"
+                "-w" | "flash"
                     | "erase"
                     | "reboot"
                     | "wipe-super"
@@ -295,7 +295,11 @@ impl DeviceSession {
         bail!("等待设备进入 fastboot 超时。");
     }
 
-    pub fn wait_for_fastboot_serial(&self, chosen_serial: &str, timeout_secs: u64) -> Result<String> {
+    pub fn wait_for_fastboot_serial(
+        &self,
+        chosen_serial: &str,
+        timeout_secs: u64,
+    ) -> Result<String> {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(timeout_secs) {
             let devices = self.list_fastboot_serials()?;
@@ -338,12 +342,19 @@ impl DeviceSession {
                 return Ok(s.to_string());
             }
 
-            if self.list_fastboot_serials()?.iter().any(|serial| serial == s) {
+            if self
+                .list_fastboot_serials()?
+                .iter()
+                .any(|serial| serial == s)
+            {
                 self.serial = Some(s.to_string());
                 return Ok(s.to_string());
             }
 
-            let adb_device = self.list_adb_devices()?.into_iter().find(|device| device.serial == s);
+            let adb_device = self
+                .list_adb_devices()?
+                .into_iter()
+                .find(|device| device.serial == s);
             if let Some(device) = adb_device {
                 self.logger.write(&format!(
                     "[自动模式] 检测到 ADB/{}，正在切换到 bootloader fastboot...",
@@ -362,7 +373,10 @@ impl DeviceSession {
                 return Ok(serial);
             }
 
-            bail!("选中的设备 {} 未处于 fastboot、fastbootd 或可用的 ADB/Recovery 模式。", s);
+            bail!(
+                "选中的设备 {} 未处于 fastboot、fastbootd 或可用的 ADB/Recovery 模式。",
+                s
+            );
         }
 
         self.serial = None;
@@ -383,7 +397,11 @@ impl DeviceSession {
                 "[自动模式] 检测到 ADB/{}，正在切换到 bootloader fastboot...",
                 adb_dev.state
             ));
-            let _ = run_process(&self.adb, &["-s", &adb_dev.serial, "reboot", "bootloader"], Some(&self.logger));
+            let _ = run_process(
+                &self.adb,
+                &["-s", &adb_dev.serial, "reboot", "bootloader"],
+                Some(&self.logger),
+            );
             devices = self.wait_for_any_fastboot(90)?;
         }
 

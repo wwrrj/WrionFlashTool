@@ -14,6 +14,7 @@ import { ConfirmModal } from './components/ConfirmModal';
 import { NoticeModal } from './components/NoticeModal';
 import { ExpandModal } from './components/ExpandModal';
 import { ErrorModal } from './components/ErrorModal';
+import { IdChoiceModal } from './components/IdChoiceModal';
 import type { DeviceSummary, EnvReport, ExpandPlan, FlashProfile, FlashStageEvent, PartitionProgressEvent } from './types';
 import './tokens.css';
 import './App.css';
@@ -46,6 +47,9 @@ export function App() {
   const [mode, setMode] = useState<FlashMode>('clean');
   const [idEnabled, setIdEnabled] = useState(false);
   const [idPath, setIdPath] = useState('');
+  const [idChoiceOpen, setIdChoiceOpen] = useState(false);
+  const [idChoiceConfirmed, setIdChoiceConfirmed] = useState(false);
+  const [idChoice, setIdChoice] = useState<'package' | 'external'>('package');
   const [rootEnabled, setRootEnabled] = useState(false);
   const [rootPath, setRootPath] = useState('');
   const [rootTarget, setRootTarget] = useState<'init_boot' | 'boot'>('init_boot');
@@ -79,6 +83,9 @@ export function App() {
     : '等待开始';
   const allowId = !runtimeReady || Boolean(profile?.post_flash_id);
   const allowRoot = !runtimeReady || Boolean(profile?.enable_root_menu);
+  const requiresIdChoice = runtimeReady && Boolean(
+    profile?.post_flash_id || profile?.dynamic_partitions.some((part) => part.name.toLowerCase() === 'mi_ext'),
+  );
 
   const windowHandle = () => runtimeReady ? getCurrentWindow() : null;
   const minimizeWindow = () => { void windowHandle()?.minimize(); };
@@ -225,6 +232,20 @@ export function App() {
       setPrepError('请先连接设备，并点击右上角刷新设备列表');
       return;
     }
+    if (requiresIdChoice && !idChoiceConfirmed) {
+      setIdChoice(idEnabled ? 'external' : 'package');
+      setIdChoiceOpen(true);
+      return;
+    }
+    if (mode === 'clean') setCleanConfirmOpen(true);
+    else void runPreparation();
+  };
+
+  const confirmIdChoice = () => {
+    if (idChoice === 'external' && !idPath.trim()) return;
+    setIdEnabled(idChoice === 'external');
+    setIdChoiceConfirmed(true);
+    setIdChoiceOpen(false);
     if (mode === 'clean') setCleanConfirmOpen(true);
     else void runPreparation();
   };
@@ -241,6 +262,8 @@ export function App() {
     setPartitionProgress(null);
     setOperationError(null);
     setPrepError(null);
+    setIdChoiceConfirmed(false);
+    setIdChoiceOpen(false);
   };
 
   const handleOpenFolder = () => {
@@ -292,9 +315,9 @@ export function App() {
           <section className="package-panel"><div className="section-kicker">刷机包配置</div><h2>{profile?.display_name || '等待刷机包配置'}</h2>{profileError && <p className="package-error">{profileError}</p>}<label className="model-select-row"><span>目标机型</span><select value={selectedModel || profile?.codenames[0] || ''} onChange={(event) => setSelectedModel(event.target.value)} disabled={!profile?.codenames.length}>{profile?.codenames.map((codename) => <option value={codename} key={codename}>{codename}</option>)}</select></label><div className="package-fields"><div><span>支持机型</span><b>{profile?.codenames.join(' / ') || '配置加载后显示'}</b></div><div><span>Super 最低要求</span><b>{formatGiB(profile?.minimum_super_bytes)}</b></div><div><span>作者 / 构建日期</span><b>{profile ? `${profile.author || '—'} · ${profile.build_date || '—'}` : '—'}</b></div></div></section>
         </div>
         <section className="mode-section"><div className="section-kicker">刷入模式</div><h2>这次要执行哪种操作？</h2><div className="mode-grid"><button className={`mode-card ${mode === 'clean' ? 'selected' : ''}`} onClick={() => setMode('clean')}><span className="mode-icon danger"><Zap size={19} /></span><span><strong>完整线刷</strong><small>首次安装或彻底重装，会清空 userdata</small></span><span className="radio-dot" /></button><button className={`mode-card ${mode === 'update' ? 'selected' : ''}`} onClick={() => setMode('update')}><span className="mode-icon safe"><RotateCw size={19} /></span><span><strong>系统更新</strong><small>覆盖系统分区，保留 userdata 和应用</small></span><span className="radio-dot" /></button></div></section>
-        <section className="optional-section"><div className="section-kicker">可选步骤</div><h2>需要同时处理吗？</h2><div className="optional-grid"><OptionToggle icon={<Sparkles size={18} />} title="ID 补丁更新" description="刷入 ColorOS mi_ext 补丁" enabled={idEnabled} available={allowId} onToggle={() => setIdEnabled((value) => !value)} color="violet" />{idEnabled && <input className="path-input" value={idPath} onChange={(event) => setIdPath(event.target.value.replace(/["']/g, ''))} placeholder="ID 补丁 .zip 或 .img 的完整路径" />}<OptionToggle icon={<Cpu size={18} />} title="Root 镜像" description="刷入已修补的 boot / init_boot" enabled={rootEnabled} available={allowRoot} onToggle={() => setRootEnabled((value) => !value)} color="orange" />{rootEnabled && <div className="root-fields"><input className="path-input" value={rootPath} onChange={(event) => setRootPath(event.target.value.replace(/["']/g, ''))} placeholder="已修补 .img 镜像的完整路径" /><select value={rootTarget} onChange={(event) => setRootTarget(event.target.value as 'init_boot' | 'boot')}><option value="init_boot">Magisk · init_boot</option><option value="boot">KernelSU / APatch · boot</option></select></div>}</div></section>
+        <section className="optional-section"><div className="section-kicker">可选步骤</div><h2>需要同时处理吗？</h2><div className="optional-grid"><OptionToggle icon={<Sparkles size={18} />} title="外部 ID 补丁" description="开始刷入时选择包内 mi_ext 或外部 ID 包" enabled={idEnabled} available={allowId} onToggle={() => setIdEnabled((value) => !value)} color="violet" />{idEnabled && <input className="path-input" value={idPath} onChange={(event) => setIdPath(event.target.value.replace(/["']/g, ''))} placeholder="外部 ID 补丁 .zip 或 .img 的完整路径" />}<OptionToggle icon={<Cpu size={18} />} title="Root 镜像" description="刷入已修补的 boot / init_boot" enabled={rootEnabled} available={allowRoot} onToggle={() => setRootEnabled((value) => !value)} color="orange" />{rootEnabled && <div className="root-fields"><input className="path-input" value={rootPath} onChange={(event) => setRootPath(event.target.value.replace(/["']/g, ''))} placeholder="已修补 .img 镜像的完整路径" /><select value={rootTarget} onChange={(event) => setRootTarget(event.target.value as 'init_boot' | 'boot')}><option value="init_boot">Magisk · init_boot</option><option value="boot">KernelSU / APatch · boot</option></select></div>}</div></section>
         <div className="selection-footer"><div className="selection-options"><button className="secondary-button" onClick={() => setNoticeOpen(true)}><BookOpen size={15} /> 刷入须知</button><label className="reboot-toggle"><input type="checkbox" checked={rebootAfter} onChange={(event) => setRebootAfter(event.target.checked)} /><span>完成后自动重启</span></label></div><div>{prepError && <span className="inline-error"><TriangleAlert size={14} /> {prepError}</span>}<button className="primary-button" onClick={continueSelection} disabled={isBusy}>开始准备 <ArrowRight size={16} /></button></div></div>
-        {profile?.expansion?.enabled && <button className="advanced-link" onClick={() => setExpandOpen(true)}><HardDrive size={14} /> 需要物理扩容？打开高级工具</button>}
+        {profile?.expansion?.enabled && <div className="expansion-entry"><div><strong><HardDrive size={17} /> Super 物理扩容</strong><span>刷入包内 Recovery 后，按步骤重划 GPT 并扩展 super</span></div><button className="expansion-button" onClick={() => setExpandOpen(true)}>打开扩容工具 <ArrowRight size={15} /></button></div>}
       </main>}
 
       {step === 'prepare' && <main className="wizard-page progress-page"><WizardHeader step={3} title="正在准备设备" description="工具会先完成只读检测，并自动进入适合当前任务的模式。" /><div className="progress-card"><div className="progress-spinner"><Loader2 size={31} /></div><h2>{prepError ? '准备失败' : '正在检查设备环境'}</h2><p>{prepError || '正在读取设备代号、Super 分区容量和防回滚信息…'}</p><div className="prepare-list"><ProgressRow label="连接设备" done={Boolean(currentDevice)} /><ProgressRow label="检查刷机包与机型" done={Boolean(report)} active={!report && !prepError} /><ProgressRow label="切换到合适的刷写模式" done={false} active={Boolean(report)} /></div>{prepError ? <div className="progress-actions"><button className="secondary-button" onClick={resetToSelection}><ArrowLeft size={15} /> 返回修改</button><button className="primary-button" onClick={() => void runPreparation()}>重试检测 <RefreshCw size={15} /></button></div> : <button className="secondary-button" onClick={resetToSelection} disabled={isBusy}>取消并返回</button>}</div></main>}
@@ -308,6 +331,7 @@ export function App() {
       <ConfirmModal isOpen={cleanConfirmOpen} title="确认完整线刷（清空数据）" description="此操作会写入固件、启动链和动态分区，并格式化 userdata 与 metadata。手机中的照片、应用和文件都会被清空。" warningNotice="请确认 Bootloader 已解锁，并已备份重要资料。" expectedWord={profile?.confirmation_word || 'WIPE'} onConfirm={handleCleanConfirmed} onCancel={() => setCleanConfirmOpen(false)} confirmLabel="确认并开始准备" isDangerous />
       <NoticeModal isOpen={noticeOpen} onClose={() => setNoticeOpen(false)} profile={profile} />
       <ExpandModal isOpen={expandOpen} onClose={() => setExpandOpen(false)} expansionConfig={profile?.expansion} onGetPlan={getExpandPlan} onApplyExpand={applyExpand} onListBackups={listBackups} onRestoreBackup={restoreBackup} isProcessing={isBusy} />
+      <IdChoiceModal isOpen={idChoiceOpen} path={idPath} onPathChange={setIdPath} choice={idChoice} onChoiceChange={setIdChoice} onConfirm={confirmIdChoice} onCancel={() => setIdChoiceOpen(false)} />
       <ErrorModal isOpen={Boolean(operationError)} message={operationError || ''} onClose={() => setOperationError(null)} onReturn={resetToSelection} onViewLogs={() => { setOperationError(null); setStep('logs'); }} />
     </div>
   );

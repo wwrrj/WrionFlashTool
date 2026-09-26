@@ -1,8 +1,8 @@
+use anyhow::{anyhow, bail, Result};
+use regex::Regex;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use anyhow::{anyhow, bail, Result};
-use regex::Regex;
 use tauri::{AppHandle, Emitter};
 
 use crate::config::{FlashProfile, ImageOp};
@@ -39,7 +39,11 @@ pub fn is_overflow_flash_error(text: &str) -> bool {
     lowered.contains("value too large") || lowered.contains("eoverflow")
 }
 
-pub fn recreate_logical_partition(session: &DeviceSession, name: &str, size_bytes: u64) -> Result<()> {
+pub fn recreate_logical_partition(
+    session: &DeviceSession,
+    name: &str,
+    size_bytes: u64,
+) -> Result<()> {
     let _ = session.run_fastboot(
         &["delete-logical-partition", name],
         Some(&format!("delete-logical-partition {}", name)),
@@ -52,12 +56,7 @@ pub fn recreate_logical_partition(session: &DeviceSession, name: &str, size_byte
         true,
     )?;
     if res.code != 0 {
-        bail!(
-            "创建逻辑分区 {} 失败（{}）：{}",
-            name,
-            res.code,
-            res.text
-        );
+        bail!("创建逻辑分区 {} 失败（{}）：{}", name, res.code, res.text);
     }
     Ok(())
 }
@@ -86,7 +85,10 @@ fn ensure_logical_partition(
             let size_str = required_bytes.to_string();
             let resized = session.run_fastboot(
                 &["resize-logical-partition", partition, &size_str],
-                Some(&format!("resize-logical-partition {} {}", partition, required_bytes)),
+                Some(&format!(
+                    "resize-logical-partition {} {}",
+                    partition, required_bytes
+                )),
                 true,
             )?;
             if resized.code == 0 {
@@ -119,10 +121,6 @@ fn ensure_logical_partition(
     recreate_logical_partition(session, partition, required_bytes)
 }
 
-pub fn is_separate_id_partition(name: &str) -> bool {
-    name.trim().to_lowercase() == "mi_ext"
-}
-
 fn flashed_partitions(text: &str) -> Vec<String> {
     let re = Regex::new(r"(?i)Partition\s+(\S+)\s+flashed successfully").unwrap();
     re.captures_iter(text).map(|c| c[1].to_string()).collect()
@@ -141,8 +139,12 @@ pub fn is_benign_flash_failure(partition: &str, text: &str) -> bool {
     }
     if partition.ends_with("_ab") {
         let base = &partition[..partition.len() - 3];
-        let has_a = ok.iter().any(|p| p == &format!("{}_a", base) || p.ends_with("_a"));
-        let has_b = ok.iter().any(|p| p == &format!("{}_b", base) || p.ends_with("_b"));
+        let has_a = ok
+            .iter()
+            .any(|p| p == &format!("{}_a", base) || p.ends_with("_a"));
+        let has_b = ok
+            .iter()
+            .any(|p| p == &format!("{}_b", base) || p.ends_with("_b"));
         if has_a && has_b {
             return true;
         }
@@ -158,46 +160,67 @@ pub fn flash_image(
     label: &str,
 ) -> Result<()> {
     let p_str = image_path.display().to_string();
-    let res = session.run_fastboot(
-        &["flash", partition, &p_str],
-        Some(label),
-        true,
-    )?;
+    let res = session.run_fastboot(&["flash", partition, &p_str], Some(label), true)?;
     if res.code == 0 {
         return Ok(());
     }
 
     if is_benign_flash_failure(partition, &res.text) {
-        session.logger.write("  │  注：bootloader 已报告分区写入成功；远程错误 0000001B 在部分机型上可忽略。");
+        session.logger.write(
+            "  │  注：bootloader 已报告分区写入成功；远程错误 0000001B 在部分机型上可忽略。",
+        );
         return Ok(());
     }
 
     if partition.ends_with("_ab") {
         let base = &partition[..partition.len() - 3];
-        session.logger.write(&format!("  │  {} 返回异常，尝试分别刷入 {}_a / {}_b …", partition, base, base));
+        session.logger.write(&format!(
+            "  │  {} 返回异常，尝试分别刷入 {}_a / {}_b …",
+            partition, base, base
+        ));
         for slot in &["a", "b"] {
             let part = format!("{}_{}", base, slot);
-            let sub_lbl = format!("刷入 {} ← {:?}", part, image_path.file_name().unwrap_or_default());
-            let r = session.run_fastboot(
-                &["flash", &part, &p_str],
-                Some(&sub_lbl),
-                true,
-            )?;
+            let sub_lbl = format!(
+                "刷入 {} ← {:?}",
+                part,
+                image_path.file_name().unwrap_or_default()
+            );
+            let r = session.run_fastboot(&["flash", &part, &p_str], Some(&sub_lbl), true)?;
             if r.code == 0 {
                 continue;
             }
             if is_benign_flash_failure(&part, &r.text)
-                || (r.text.contains(&format!("Partition {} flashed successfully", part)) && r.text.contains("0000001B"))
+                || (r
+                    .text
+                    .contains(&format!("Partition {} flashed successfully", part))
+                    && r.text.contains("0000001B"))
             {
-                session.logger.write(&format!("  │  注：{} 已报告写入成功，忽略后续远程错误码。", part));
+                session.logger.write(&format!(
+                    "  │  注：{} 已报告写入成功，忽略后续远程错误码。",
+                    part
+                ));
                 continue;
             }
-            bail!("刷入 {} 失败（{}）：flash {} {:?}\n{}", part, r.code, part, image_path, r.text);
+            bail!(
+                "刷入 {} 失败（{}）：flash {} {:?}\n{}",
+                part,
+                r.code,
+                part,
+                image_path,
+                r.text
+            );
         }
         return Ok(());
     }
 
-    bail!("{} 失败（{}）：flash {} {:?}\n{}", label, res.code, partition, image_path, res.text);
+    bail!(
+        "{} 失败（{}）：flash {} {:?}\n{}",
+        label,
+        res.code,
+        partition,
+        image_path,
+        res.text
+    );
 }
 
 pub fn gather_environment(
@@ -206,17 +229,24 @@ pub fn gather_environment(
     chosen_serial: Option<&str>,
 ) -> Result<EnvReport> {
     let serial = session.select_device(chosen_serial)?;
-    let product = session.getvar("product", false)?
+    let product = session
+        .getvar("product", false)?
         .ok_or_else(|| anyhow!("无法读取 product 代号"))?;
 
     if !profile.codenames.iter().any(|c| c == &product) {
-        bail!("机型不匹配：检测到 {}，本包仅支持：{}", product, profile.codenames.join(", "));
+        bail!(
+            "机型不匹配：检测到 {}，本包仅支持：{}",
+            product,
+            profile.codenames.join(", ")
+        );
     }
 
-    let size_text = session.getvar("partition-size:super", false)?
+    let size_text = session
+        .getvar("partition-size:super", false)?
         .ok_or_else(|| anyhow!("无法读取 partition-size:super"))?;
     let super_bytes = parse_size(&size_text)?;
-    let is_userspace = session.getvar("is-userspace", true)?
+    let is_userspace = session
+        .getvar("is-userspace", true)?
         .map_or(false, |v| v.to_lowercase() == "yes");
     let anti = session.getvar("anti", true)?;
 
@@ -232,10 +262,17 @@ pub fn gather_environment(
 
 pub fn run_image_op(profile: &FlashProfile, session: &DeviceSession, op: &ImageOp) -> Result<()> {
     if op.action == "erase" {
-        session.run_fastboot(&["erase", &op.partition], Some(&format!("擦除 {}", op.partition)), false)?;
+        session.run_fastboot(
+            &["erase", &op.partition],
+            Some(&format!("擦除 {}", op.partition)),
+            false,
+        )?;
         return Ok(());
     }
-    let file_name = op.file.as_ref().ok_or_else(|| anyhow!("ImageOp 缺少 file"))?;
+    let file_name = op
+        .file
+        .as_ref()
+        .ok_or_else(|| anyhow!("ImageOp 缺少 file"))?;
     let path = profile.images_dir.join(file_name);
     flash_image(
         session,
@@ -243,44 +280,6 @@ pub fn run_image_op(profile: &FlashProfile, session: &DeviceSession, op: &ImageO
         &path,
         &format!("刷入 {} ← {}", op.partition, file_name),
     )
-}
-
-pub fn has_data_operation(profile: &FlashProfile, base_partition: &str) -> bool {
-    profile.final_data.iter().any(|op| {
-        let partition = op.partition.trim().to_lowercase();
-        partition == base_partition
-            || partition == format!("{}_a", base_partition)
-            || partition == format!("{}_b", base_partition)
-            || partition == format!("{}_ab", base_partition)
-    })
-}
-
-fn ensure_clean_data_partitions(
-    profile: &FlashProfile,
-    session: &DeviceSession,
-    preserve_data: bool,
-) -> Result<()> {
-    if preserve_data {
-        return Ok(());
-    }
-
-    for partition in ["userdata", "metadata"] {
-        if has_data_operation(profile, partition) {
-            continue;
-        }
-
-        session.logger.write(&format!(
-            "  ├─ 配置未声明 {} 操作，执行完整线刷默认擦除",
-            partition
-        ));
-        session.run_fastboot(
-            &["erase", partition],
-            Some(&format!("格式化 {}", partition)),
-            false,
-        )?;
-    }
-
-    Ok(())
 }
 
 pub fn restore_dat_to_raw(
@@ -300,12 +299,18 @@ pub fn restore_dat_to_raw(
         bail!("缺少 {}.new.dat，无法正确还原分区镜像", name);
     }
     if session.dry_run {
-        session.logger.write(&format!("  ├─ [dry-run] sdat2img {:?} -> {:?}", transfer.file_name(), raw.file_name()));
+        session.logger.write(&format!(
+            "  ├─ [dry-run] sdat2img {:?} -> {:?}",
+            transfer.file_name(),
+            raw.file_name()
+        ));
         File::create(raw)?;
         return Ok(0);
     }
 
-    session.logger.write(&format!("sdat2img {:?} {:?} -> {:?}", transfer, dat, raw));
+    session
+        .logger
+        .write(&format!("sdat2img {:?} {:?} -> {:?}", transfer, dat, raw));
 
     let part_name = name.to_string();
     let handle_clone = app_handle.cloned();
@@ -313,16 +318,21 @@ pub fn restore_dat_to_raw(
     let out_size = sdat2img(&transfer, dat, raw, 4096, move |done, total| {
         let pct = if total > 0 { (done * 100) / total } else { 0 };
         if let Some(ref h) = handle_clone {
-            let _ = h.emit("partition_progress", serde_json::json!({
-                "name": part_name,
-                "done": done,
-                "total": total,
-                "percent": pct
-            }));
+            let _ = h.emit(
+                "partition_progress",
+                serde_json::json!({
+                    "name": part_name,
+                    "done": done,
+                    "total": total,
+                    "percent": pct
+                }),
+            );
         }
     })?;
 
-    session.logger.write(&format!("sdat2img {} raw 字节数: {}", name, out_size));
+    session
+        .logger
+        .write(&format!("sdat2img {} raw 字节数: {}", name, out_size));
     Ok(out_size)
 }
 
@@ -338,7 +348,11 @@ pub fn convert_dat_to_sparse(
     let raw = profile.work_dir.join(format!("{}.raw.img", name));
     let mut out_size = restore_dat_to_raw(profile, session, name, dat, &raw, app_handle)?;
     if session.dry_run {
-        session.logger.write(&format!("  ├─ [dry-run] img2simg {:?} -> {:?}", raw.file_name(), sparse.file_name()));
+        session.logger.write(&format!(
+            "  ├─ [dry-run] img2simg {:?} -> {:?}",
+            raw.file_name(),
+            sparse.file_name()
+        ));
         File::create(sparse)?;
         return Ok(logical_flash_size(pad_to_bytes.unwrap_or(0), None));
     }
@@ -347,16 +361,26 @@ pub fn convert_dat_to_sparse(
     if target_size > out_size {
         let f = std::fs::OpenOptions::new().write(true).open(&raw)?;
         f.set_len(target_size)?;
-        session.logger.write(&format!("  │  {} 已补零到 {} 字节（避免 fastbootd 过小分区失败）", name, target_size));
+        session.logger.write(&format!(
+            "  │  {} 已补零到 {} 字节（避免 fastbootd 过小分区失败）",
+            name, target_size
+        ));
         out_size = target_size;
     }
 
     for attempt in 1..=3 {
-        session.logger.write(&format!("  │  img2simg：{} → sparse…（第 {} 次尝试）", name, attempt));
+        session.logger.write(&format!(
+            "  │  img2simg：{} → sparse…（第 {} 次尝试）",
+            name, attempt
+        ));
         let raw_str = raw.display().to_string();
         let sparse_str = sparse.display().to_string();
         let started = Instant::now();
-        let res = run_process(&profile.img2simg(), &[&raw_str, &sparse_str], Some(&session.logger))?;
+        let res = run_process(
+            &profile.img2simg(),
+            &[&raw_str, &sparse_str],
+            Some(&session.logger),
+        )?;
         if res.code != 0 {
             bail!("img2simg 转换 {} 失败: {}", name, res.text);
         }
@@ -375,7 +399,10 @@ pub fn convert_dat_to_sparse(
         let f = std::fs::OpenOptions::new().write(true).open(&raw)?;
         f.set_len(safe_size)?;
         let _ = std::fs::remove_file(sparse);
-        session.logger.write(&format!("  │  {} sparse 封装比逻辑分区大，已补零到 {} 字节后重试", name, safe_size));
+        session.logger.write(&format!(
+            "  │  {} sparse 封装比逻辑分区大，已补零到 {} 字节后重试",
+            name, safe_size
+        ));
         out_size = safe_size;
         if attempt == 3 {
             bail!("{} sparse 封装尺寸连续超过逻辑分区，无法安全刷入", name);
@@ -394,7 +421,9 @@ pub fn prepare_wipe_super_source(
     if let Some(ref name) = profile.wipe_super_dat {
         let dat = profile.super_dir.join(format!("{}.new.dat", name));
         let raw = profile.work_dir.join(format!("{}.raw.img", name));
-        session.logger.write(&format!("  │  正在还原空 super：{}.new.dat", name));
+        session
+            .logger
+            .write(&format!("  │  正在还原空 super：{}.new.dat", name));
         restore_dat_to_raw(profile, session, name, &dat, &raw, app_handle)?;
         return Ok(raw);
     }
@@ -448,10 +477,7 @@ pub fn prepare_empty_super_flash_image(
     Ok(sparse)
 }
 
-pub fn flash_empty_super_bootloader(
-    session: &mut DeviceSession,
-    image: &Path,
-) -> Result<()> {
+pub fn flash_empty_super_bootloader(session: &mut DeviceSession, image: &Path) -> Result<()> {
     if !image.is_file() {
         bail!("空 super sparse 镜像不存在：{:?}", image);
     }
@@ -460,23 +486,17 @@ pub fn flash_empty_super_bootloader(
         .getvar("is-userspace", true)?
         .map_or(false, |value| value.to_lowercase() == "yes");
     if is_userspace {
-        session.logger.write("  │  当前已在 fastbootd，先返回 bootloader 刷写物理 super");
-        session.run_fastboot(
-            &["reboot", "bootloader"],
-            Some("返回 bootloader"),
-            false,
-        )?;
+        session
+            .logger
+            .write("  │  当前已在 fastbootd，先返回 bootloader 刷写物理 super");
+        session.run_fastboot(&["reboot", "bootloader"], Some("返回 bootloader"), false)?;
         if !session.dry_run {
             session.wait_for_mode(false, 90)?;
         }
     }
 
     let image_path = image.display().to_string();
-    let _ = session.run_fastboot(
-        &["erase", "super"],
-        Some("擦除物理 super"),
-        true,
-    )?;
+    let _ = session.run_fastboot(&["erase", "super"], Some("擦除物理 super"), true)?;
     session.run_fastboot(
         &["flash", "super", &image_path],
         Some("在 bootloader 刷入空 super"),
@@ -497,7 +517,9 @@ fn create_logical_partitions_from_profile(profile: &FlashProfile, session: &Devi
         let size = logical_flash_size(part.pad_to_bytes.unwrap_or(part.dat_bytes), None);
         let _ = session.run_fastboot(&["delete-logical-partition", &name], None, true);
         let size_str = size.to_string();
-        if let Ok(res) = session.run_fastboot(&["create-logical-partition", &name, &size_str], None, true) {
+        if let Ok(res) =
+            session.run_fastboot(&["create-logical-partition", &name, &size_str], None, true)
+        {
             if res.code == 0 {
                 ok_any = true;
             }
@@ -525,7 +547,11 @@ fn clear_profile_logical_partitions(profile: &FlashProfile, session: &DeviceSess
             part.name.clone(),
         ];
         for base in bases {
-            for candidate in [base.clone(), format!("{}-cow", base), format!("{}_cow", base)] {
+            for candidate in [
+                base.clone(),
+                format!("{}-cow", base),
+                format!("{}_cow", base),
+            ] {
                 if !names.iter().any(|name| name == &candidate) {
                     names.push(candidate);
                 }
@@ -533,7 +559,9 @@ fn clear_profile_logical_partitions(profile: &FlashProfile, session: &DeviceSess
         }
     }
 
-    session.logger.write("  │  清理现有动态逻辑分区（含另一槽位与 COW）以释放 super 空间");
+    session
+        .logger
+        .write("  │  清理现有动态逻辑分区（含另一槽位与 COW）以释放 super 空间");
     for name in names {
         let _ = session.run_fastboot(
             &["delete-logical-partition", &name],
@@ -554,7 +582,9 @@ pub fn wipe_or_init_super(
 
     let us = session.getvar("is-userspace", true)?.unwrap_or_default();
     if us != "yes" {
-        session.logger.write("  │  未检测到 fastbootd，尝试重新进入…");
+        session
+            .logger
+            .write("  │  未检测到 fastbootd，尝试重新进入…");
         let _ = session.run_fastboot(&["reboot", "fastboot"], Some("reboot fastboot"), true);
         std::thread::sleep(Duration::from_secs(3));
         session.wait_for_mode(true, 90)?;
@@ -572,11 +602,16 @@ pub fn wipe_or_init_super(
     let wipe_meta = profile.work_dir.join("super_empty_wipe.img");
     match build_wipe_super_image(wipe_img, &wipe_meta, 16 * 1024 * 1024) {
         Ok(_) => {
-            session.logger.write(&format!("  │  已生成 wipe-super 元数据镜像（{:?} 字节）", wipe_meta.metadata()?.len()));
+            session.logger.write(&format!(
+                "  │  已生成 wipe-super 元数据镜像（{:?} 字节）",
+                wipe_meta.metadata()?.len()
+            ));
             candidates.push(("wipe-super", wipe_meta));
         }
         Err(e) => {
-            session.logger.write(&format!("  │  生成 wipe-super 镜像失败：{}", e));
+            session
+                .logger
+                .write(&format!("  │  生成 wipe-super 镜像失败：{}", e));
             if !is_android_sparse(wipe_img) {
                 candidates.push(("wipe-super", wipe_img.to_path_buf()));
             }
@@ -592,33 +627,52 @@ pub fn wipe_or_init_super(
         let attempts = if mode == "flash-super" { 3 } else { 2 };
         let p_str = path.display().to_string();
         for attempt in 1..=attempts {
-            let label = format!("{} ← {:?}（第 {}/{} 次）", mode, path.file_name().unwrap_or_default(), attempt, attempts);
+            let label = format!(
+                "{} ← {:?}（第 {}/{} 次）",
+                mode,
+                path.file_name().unwrap_or_default(),
+                attempt,
+                attempts
+            );
             let res = if mode == "wipe-super" {
                 session.run_fastboot(&["wipe-super", &p_str], Some(&label), true)?
             } else {
                 session.run_fastboot(&["flash", "super", &p_str], Some(&label), true)?
             };
             if res.code == 0 {
-                session.logger.write(&format!("  │  空 super 初始化成功（{}）", mode));
+                session
+                    .logger
+                    .write(&format!("  │  空 super 初始化成功（{}）", mode));
                 return Ok(());
             }
             last_error = res.text;
-            if last_error.contains("No such file") || last_error.to_lowercase().contains("not found") {
+            if last_error.contains("No such file")
+                || last_error.to_lowercase().contains("not found")
+            {
                 std::thread::sleep(Duration::from_secs(2 + attempt));
             } else {
                 break;
             }
         }
-        session.logger.write(&format!("  │  {} 未成功，尝试下一方案…", mode));
+        session
+            .logger
+            .write(&format!("  │  {} 未成功，尝试下一方案…", mode));
     }
 
-    session.logger.write("  │  尝试按配置 create-logical-partition 创建逻辑分区…");
+    session
+        .logger
+        .write("  │  尝试按配置 create-logical-partition 创建逻辑分区…");
     if create_logical_partitions_from_profile(profile, session) {
-        session.logger.write("  │  逻辑分区已创建，继续刷写动态分区");
+        session
+            .logger
+            .write("  │  逻辑分区已创建，继续刷写动态分区");
         return Ok(());
     }
 
-    bail!("在 fastbootd 初始化空 super 失败。\n最后错误：{}", last_error);
+    bail!(
+        "在 fastbootd 初始化空 super 失败。\n最后错误：{}",
+        last_error
+    );
 }
 
 pub fn flash_dynamic_partition_image(
@@ -630,23 +684,47 @@ pub fn flash_dynamic_partition_image(
     let small = logical_size <= SMALL_LOGICAL_RECREATE_BYTES;
     ensure_logical_partition(session, partition, logical_size, small)?;
     let img_str = image.display().to_string();
-    let res = session.run_fastboot(&["flash", partition, &img_str], Some(&format!("刷入 {}", partition)), true)?;
+    let res = session.run_fastboot(
+        &["flash", partition, &img_str],
+        Some(&format!("刷入 {}", partition)),
+        true,
+    )?;
     if res.code == 0 {
         return Ok(());
     }
 
     if is_overflow_flash_error(&res.text) || small {
         let retry_size = logical_size.max(MIN_LOGICAL_FLASH_BYTES);
-        session.logger.write("  │  逻辑分区写入失败，正在重建后重试…");
+        session
+            .logger
+            .write("  │  逻辑分区写入失败，正在重建后重试…");
         ensure_logical_partition(session, partition, retry_size, true)?;
-        let res2 = session.run_fastboot(&["flash", partition, &img_str], Some(&format!("刷入 {}（重试）", partition)), true)?;
+        let res2 = session.run_fastboot(
+            &["flash", partition, &img_str],
+            Some(&format!("刷入 {}（重试）", partition)),
+            true,
+        )?;
         if res2.code == 0 {
             return Ok(());
         }
-        bail!("刷入 {} 失败（{}）：flash {} {:?}\n{}", partition, res2.code, partition, image, res2.text);
+        bail!(
+            "刷入 {} 失败（{}）：flash {} {:?}\n{}",
+            partition,
+            res2.code,
+            partition,
+            image,
+            res2.text
+        );
     }
 
-    bail!("刷入 {} 失败（{}）：flash {} {:?}\n{}", partition, res.code, partition, image, res.text);
+    bail!(
+        "刷入 {} 失败（{}）：flash {} {:?}\n{}",
+        partition,
+        res.code,
+        partition,
+        image,
+        res.text
+    );
 }
 
 pub fn flash_dynamic_partitions(
@@ -671,14 +749,12 @@ pub fn flash_dynamic_partitions(
     for (i, part) in profile.dynamic_partitions.iter().enumerate() {
         let index = i + 1;
         let target = format!("{}{}", part.name, profile.slot_suffix);
-        if profile.post_flash_id && is_separate_id_partition(&part.name) {
-            session.logger.write(&format!("  ├─ [{}/{}] 跳过 {}（由独立 ID 补丁刷入，避免覆盖）", index, total, part.name));
-            continue;
-        }
-
         let dat = profile.super_dir.join(format!("{}.new.dat", part.name));
         let sparse = profile.work_dir.join(format!("{}.img", part.name));
-        session.logger.write(&format!("  ├─ [{}/{}] 转换与刷写 {} DAT → sparse", index, total, part.name));
+        session.logger.write(&format!(
+            "  ├─ [{}/{}] 转换与刷写 {} DAT → sparse",
+            index, total, part.name
+        ));
 
         let flashed_size = convert_dat_to_sparse(
             profile,
@@ -710,10 +786,26 @@ pub fn initialize_crc(profile: &FlashProfile, session: &DeviceSession) -> Result
     }
     if let Ok(Some(crc)) = session.getvar("crc", true) {
         if crc == "1" {
-            let crc_img = profile.images_dir.join(&profile.crc_list_file).display().to_string();
-            let sparse_crc_img = profile.images_dir.join(&profile.sparse_crc_list_file).display().to_string();
-            let _ = session.run_fastboot(&["flash", "crclist", &crc_img], Some("加载普通镜像 CRC 表"), true);
-            let _ = session.run_fastboot(&["flash", "sparsecrclist", &sparse_crc_img], Some("加载 sparse 镜像 CRC 表"), true);
+            let crc_img = profile
+                .images_dir
+                .join(&profile.crc_list_file)
+                .display()
+                .to_string();
+            let sparse_crc_img = profile
+                .images_dir
+                .join(&profile.sparse_crc_list_file)
+                .display()
+                .to_string();
+            let _ = session.run_fastboot(
+                &["flash", "crclist", &crc_img],
+                Some("加载普通镜像 CRC 表"),
+                true,
+            );
+            let _ = session.run_fastboot(
+                &["flash", "sparsecrclist", &sparse_crc_img],
+                Some("加载 sparse 镜像 CRC 表"),
+                true,
+            );
         }
     }
     Ok(())
@@ -727,11 +819,14 @@ pub fn execute_flash_pipeline(
 ) -> Result<()> {
     let emit_stage = |stage: u32, title: &str| {
         if let Some(h) = app_handle {
-            let _ = h.emit("flash_stage", serde_json::json!({
-                "stage": stage,
-                "total": 6,
-                "title": title
-            }));
+            let _ = h.emit(
+                "flash_stage",
+                serde_json::json!({
+                    "stage": stage,
+                    "total": 6,
+                    "title": title
+                }),
+            );
         }
     };
 
@@ -744,12 +839,17 @@ pub fn execute_flash_pipeline(
     if !report.super_ready {
         bail!(
             "super 只有 {} 字节，未达到要求的 {} 字节。请先运行独立扩容工具。",
-            report.super_bytes, profile.minimum_super_bytes
+            report.super_bytes,
+            profile.minimum_super_bytes
         );
     }
 
     if report.is_userspace {
-        session.run_fastboot(&["reboot", "bootloader"], Some("从 fastbootd 返回 bootloader"), false)?;
+        session.run_fastboot(
+            &["reboot", "bootloader"],
+            Some("从 fastbootd 返回 bootloader"),
+            false,
+        )?;
         if !session.dry_run {
             session.wait_for_mode(false, 90)?;
         }
@@ -763,9 +863,16 @@ pub fn execute_flash_pipeline(
             }
         }
         if dev_anti > pkg_anti {
-            bail!("Anti rollback 检查失败：设备={}，刷机包={}。", dev_anti, pkg_anti);
+            bail!(
+                "Anti rollback 检查失败：设备={}，刷机包={}。",
+                dev_anti,
+                pkg_anti
+            );
         }
-        session.logger.write(&format!("Anti check OK: device={}, package={}", dev_anti, pkg_anti));
+        session.logger.write(&format!(
+            "Anti check OK: device={}, package={}",
+            dev_anti, pkg_anti
+        ));
     }
 
     initialize_crc(profile, &session)?;
@@ -792,7 +899,11 @@ pub fn execute_flash_pipeline(
         run_image_op(profile, &session, op)?;
     }
     if let Some(ref slot) = profile.set_active_slot {
-        session.run_fastboot(&["set_active", slot], Some(&format!("预设活动槽位 {}", slot)), true)?;
+        session.run_fastboot(
+            &["set_active", slot],
+            Some(&format!("预设活动槽位 {}", slot)),
+            true,
+        )?;
     }
 
     // Stage 4: Super & Dynamic
@@ -802,17 +913,44 @@ pub fn execute_flash_pipeline(
     }
 
     // Stage 5: Final Data
-    emit_stage(5, if preserve_data { "保留数据分区处理" } else { "数据分区与最终槽位" });
+    emit_stage(
+        5,
+        if preserve_data {
+            "保留数据分区处理"
+        } else {
+            "数据分区与最终槽位"
+        },
+    );
     for op in &profile.final_data {
         if preserve_data && is_preserved_data_partition(&op.partition) {
-            session.logger.write(&format!("  ├─ [更新模式] 跳过 {} {}", op.action, op.partition));
+            session.logger.write(&format!(
+                "  ├─ [更新模式] 跳过 {} {}",
+                op.action, op.partition
+            ));
+            continue;
+        }
+        if !preserve_data && op.action == "erase" && is_preserved_data_partition(&op.partition) {
+            session.logger.write(&format!(
+                "  ├─ 延后 {}，统一使用 fastboot -w 格式化数据",
+                op.partition
+            ));
             continue;
         }
         run_image_op(profile, &session, op)?;
     }
-    ensure_clean_data_partitions(profile, &session, preserve_data)?;
+    if !preserve_data {
+        session.run_fastboot(
+            &["-w"],
+            Some("fastboot -w 格式化 userdata / metadata"),
+            false,
+        )?;
+    }
     if let Some(ref slot) = profile.set_active_slot {
-        session.run_fastboot(&["set_active", slot], Some(&format!("设置最终活动槽位 {}", slot)), true)?;
+        session.run_fastboot(
+            &["set_active", slot],
+            Some(&format!("设置最终活动槽位 {}", slot)),
+            true,
+        )?;
     }
 
     // Stage 6: Complete

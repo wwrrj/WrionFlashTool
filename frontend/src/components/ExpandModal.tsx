@@ -138,14 +138,14 @@ export const ExpandModal: React.FC<ExpandModalProps> = ({
               {!plan && (
                 <div className="text-center py-6 border border-dashed border-[#e5e7eb] rounded-[10px] bg-[#fafafa]">
                   <p className="text-xs text-[#6b7280] mb-3">
-                    请先连接手机处于 Recovery 模式（支持 root ADB），然后点击下方计算方案：
+                    连接手机后直接开始。工具会从 Android、Recovery、fastboot 或 fastbootd 自动切换，先刷入包内 Recovery，再读取 GPT 计算方案：
                   </p>
                   <button
                     onClick={handleFetchPlan}
                     disabled={loadingPlan}
                     className="h-[36px] px-4 rounded-[6px] text-xs font-semibold text-white bg-[#111111] hover:bg-[#242424] cursor-pointer"
                   >
-                    {loadingPlan ? '正在连接 Recovery 并读取 GPT…' : '连接并计算扩容方案'}
+                    {loadingPlan ? '正在刷入 Recovery 并读取 GPT…' : '刷入 Recovery 并计算方案'}
                   </button>
                   {planError && (
                     <div className="text-[12px] text-[#ef4444] mt-3 px-4 font-mono">
