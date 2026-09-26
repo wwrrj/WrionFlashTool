@@ -278,11 +278,7 @@ impl ExpandSession {
         Ok(())
     }
 
-    fn parse_part_info(&self, part_num: u32, disk: &str) -> Result<PartInfo> {
-        let text = self.adb_shell(
-            &format!("{} --info={} {}", self.sgdisk_cmd, part_num, disk),
-            false,
-        )?;
+    fn parse_part_info_text(part_num: u32, text: &str) -> Result<PartInfo> {
         let lines: Vec<String> = text.lines().map(|s| s.to_string()).collect();
 
         let mut code = String::new();
@@ -293,7 +289,11 @@ impl ExpandSession {
 
         let re_code = Regex::new(r"(?i)Partition GUID code:\s*(\S+)")?;
         let re_guid = Regex::new(r"(?i)Partition unique GUID:\s*(\S+)")?;
-        let re_sectors = Regex::new(r"(?i)First sector:\s*(\d+).*?Last sector:\s*(\d+)")?;
+        // sgdisk normally prints First sector and Last sector on separate
+        // lines.  Keep the two expressions independent so both the Android
+        // and desktop builds of sgdisk are accepted.
+        let re_first = Regex::new(r"(?i)First sector:\s*(\d+)")?;
+        let re_last = Regex::new(r"(?i)Last sector:\s*(\d+)")?;
         let re_name = Regex::new(r"(?i)Partition name:\s*'([^']*)'")?;
 
         for l in &lines {
@@ -303,9 +303,11 @@ impl ExpandSession {
             if let Some(c) = re_guid.captures(l) {
                 guid = c[1].to_string();
             }
-            if let Some(c) = re_sectors.captures(l) {
+            if let Some(c) = re_first.captures(l) {
                 first = c[1].parse().unwrap_or(0);
-                last = c[2].parse().unwrap_or(0);
+            }
+            if let Some(c) = re_last.captures(l) {
+                last = c[1].parse().unwrap_or(0);
             }
             if let Some(c) = re_name.captures(l) {
                 name = c[1].to_string();
@@ -325,6 +327,14 @@ impl ExpandSession {
             name,
             lines,
         })
+    }
+
+    fn parse_part_info(&self, part_num: u32, disk: &str) -> Result<PartInfo> {
+        let text = self.adb_shell(
+            &format!("{} --info={} {}", self.sgdisk_cmd, part_num, disk),
+            false,
+        )?;
+        Self::parse_part_info_text(part_num, &text)
     }
 
     pub fn build_plan(&self) -> Result<ExpandPlan> {
@@ -574,5 +584,28 @@ impl ExpandSession {
         let _ = self.adb_shell("twrp wipe data", true);
         let _ = self.adb_shell("twrp wipe metadata", true);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExpandSession;
+
+    #[test]
+    fn parses_sgdisk_sector_fields_on_separate_lines() {
+        let output = r#"Partition GUID code: 8A12DE1-5E41-4C3B-8B4C-B1441E5D3A38 (Unknown)
+Partition unique GUID: 821E3EBA-1B33-F194-B4B3-2FD3EABB567F
+First sector: 228864 (at 894.0 MiB)
+Last sector: 4423167 (at 16.9 GiB)
+Partition size: 4194304 sectors (16.0 GiB)
+Attribute flags: 0000000000000000
+Partition name: 'super'
+"#;
+
+        let info = ExpandSession::parse_part_info_text(32, output).unwrap();
+        assert_eq!(info.number, 32);
+        assert_eq!(info.first, 228864);
+        assert_eq!(info.last, 4423167);
+        assert_eq!(info.name, "super");
     }
 }
