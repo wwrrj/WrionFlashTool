@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Result};
 use regex::Regex;
 use tauri::{AppHandle, Emitter};
@@ -78,23 +78,42 @@ fn ensure_logical_partition(
     if !force_recreate {
         let reported = session.getvar(&format!("partition-size:{}", partition), true)?;
         let current = reported.as_deref().and_then(|value| parse_size(value).ok());
-        if !needs_logical_resize(current, required_bytes) {
-            return Ok(());
-        }
+        if let Some(current_bytes) = current {
+            if current_bytes >= required_bytes {
+                return Ok(());
+            }
 
-        let size_str = required_bytes.to_string();
-        let resized = session.run_fastboot(
-            &["resize-logical-partition", partition, &size_str],
-            Some(&format!("resize-logical-partition {} {}", partition, required_bytes)),
-            true,
-        )?;
-        if resized.code == 0 {
-            return Ok(());
+            let size_str = required_bytes.to_string();
+            let resized = session.run_fastboot(
+                &["resize-logical-partition", partition, &size_str],
+                Some(&format!("resize-logical-partition {} {}", partition, required_bytes)),
+                true,
+            )?;
+            if resized.code == 0 {
+                // Some fastbootd builds return success even when the logical
+                // partition was not actually opened. Verify before flashing.
+                let verified = session
+                    .getvar(&format!("partition-size:{}", partition), true)?
+                    .and_then(|value| parse_size(&value).ok());
+                if verified.map_or(false, |size| size >= required_bytes) {
+                    return Ok(());
+                }
+                session.logger.write(&format!(
+                    "  │  {} resize 返回成功但分区仍不可读，改为删除并重建",
+                    partition
+                ));
+            } else {
+                session.logger.write(&format!(
+                    "  │  {} 无法直接 resize，改为删除并重建：{}",
+                    partition, resized.text
+                ));
+            }
+        } else {
+            session.logger.write(&format!(
+                "  │  {} 尚不存在，跳过 resize，直接删除并重建",
+                partition
+            ));
         }
-        session.logger.write(&format!(
-            "  │  {} 无法直接 resize，改为删除并重建：{}",
-            partition, resized.text
-        ));
     }
 
     recreate_logical_partition(session, partition, required_bytes)
@@ -336,12 +355,18 @@ pub fn convert_dat_to_sparse(
         session.logger.write(&format!("  │  img2simg：{} → sparse…（第 {} 次尝试）", name, attempt));
         let raw_str = raw.display().to_string();
         let sparse_str = sparse.display().to_string();
+        let started = Instant::now();
         let res = run_process(&profile.img2simg(), &[&raw_str, &sparse_str], Some(&session.logger))?;
         if res.code != 0 {
             bail!("img2simg 转换 {} 失败: {}", name, res.text);
         }
 
         let sparse_bytes = sparse.metadata()?.len();
+        session.logger.write(&format!(
+            "  │  img2simg 已完成：{} sparse 字节，耗时 {:.1} 秒",
+            sparse_bytes,
+            started.elapsed().as_secs_f64()
+        ));
         let safe_size = logical_size_for_sparse_payload(out_size, sparse_bytes);
         if safe_size == out_size {
             break;
