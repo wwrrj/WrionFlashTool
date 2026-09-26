@@ -154,3 +154,55 @@
 @media (max-width: 560px) { .flash-board { grid-template-columns: 1fr; overflow: visible; }.latest-output-panel { min-height: 150px; }.flash-board .flash-card { height: auto; }.latest-output-window { max-height: 112px; } }
 .expansion-entry { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; padding: 13px 14px; border: 1px solid #f0c7c2; border-radius: 9px; background: #fff8f6; }.expansion-entry > div { min-width: 0; }.expansion-entry strong, .expansion-entry span { display: flex; align-items: center; gap: 7px; }.expansion-entry strong { color: #9f2f24; font-size: 12px; }.expansion-entry span { margin-top: 4px; color: #8d6b68; font-size: 10px; }.expansion-button { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; min-height: 34px; padding: 0 13px; border: 1px solid #b9382d; border-radius: 7px; color: #fff; background: #b9382d; font-size: 11px; font-weight: 700; }.expansion-button:hover { background: #922b23; }
 .id-choice-backdrop { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 22px; background: rgb(15 23 42 / 38%); backdrop-filter: blur(2px); }.id-choice-modal { width: min(520px, 100%); border: 1px solid #dfe3e8; border-radius: 12px; background: #fff; box-shadow: 0 22px 60px rgb(15 23 42 / 22%); }.id-choice-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 18px 19px 14px; border-bottom: 1px solid #edf0f2; }.id-choice-heading { display: flex; align-items: center; gap: 10px; color: #7540b5; }.id-choice-heading h2 { margin-top: 4px; color: #17191e; font-size: 17px; }.id-choice-close { display: grid; place-items: center; width: 29px; height: 29px; border: 0; border-radius: 6px; color: #747c85; background: transparent; }.id-choice-close:hover { color: #17191e; background: #f4f5f6; }.id-choice-note { margin: 16px 19px 12px; color: #68717b; font-size: 11px; line-height: 1.6; }.id-choice-options { display: grid; gap: 8px; margin: 0 19px; }.id-choice-option { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px; border: 1px solid #dfe3e8; border-radius: 8px; color: #424850; background: #fff; text-align: left; }.id-choice-option:hover, .id-choice-option.selected { border-color: #17191e; }.id-choice-option > span:nth-child(2) { min-width: 0; flex: 1; }.id-choice-option strong, .id-choice-option small { display: block; }.id-choice-option strong { color: #17191e; font-size: 12px; }.id-choice-option small { margin-top: 4px; color: #7b838d; font-size: 10px; }.id-choice-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; color: #7540b5; background: #f1eaff; }.id-choice-icon.external { color: #a5520d; background: #fff0df; }.id-choice-check { display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid #c8ced5; border-radius: 50%; color: #fff; }.id-choice-option.selected .id-choice-check { border-color: #17191e; background: #17191e; }.id-choice-path { width: calc(100% - 38px); height: 36px; margin: 11px 19px 0; padding: 0 10px; border: 1px solid #d9dee4; border-radius: 7px; color: #424850; background: #fff; font-family: Consolas, monospace; font-size: 10px; }.id-choice-path:focus { border-color: #17191e; outline: none; }.id-choice-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 15px 19px 18px; margin-top: 15px; border-top: 1px solid #edf0f2; }
+
+/* Step two: keep the device status as a compact full-width strip so the
+   package details, actions and expansion entry remain in the first viewport. */
+.select-page .select-layout { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.select-page .device-panel { display: grid; grid-template-columns: minmax(150px, .42fr) minmax(260px, 1.25fr) minmax(220px, .8fr); align-items: center; gap: 10px; padding: 7px 10px; }
+.select-page .device-panel .card-heading { min-width: 0; align-items: center; }
+.select-page .device-panel .card-heading h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-page .device-panel .connected-device { min-width: 0; margin-top: 0; padding: 6px 8px; gap: 8px; }
+.select-page .device-panel .device-symbol { width: 30px; height: 30px; border-radius: 7px; }
+.select-page .device-panel .connected-device strong { font-size: 10px; }
+.select-page .device-panel .connected-device span { margin-top: 1px; font-size: 9px; }
+.select-page .device-panel .empty-device { min-width: 0; min-height: 36px; margin-top: 0; flex-direction: row; justify-content: flex-start; gap: 7px; text-align: left; }
+.select-page .device-panel .empty-device svg { flex: 0 0 auto; width: 23px; height: 23px; }
+.select-page .device-panel .empty-device strong { margin-top: 0; font-size: 10px; }
+.select-page .device-panel .empty-device p { min-width: 0; max-width: none; margin: 0; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.select-page .device-panel .device-tip { min-width: 0; margin-top: 0; padding: 0 0 0 10px; overflow: hidden; border-top: 0; border-left: 1px solid #eef0f2; font-size: 8px; white-space: nowrap; }
+.select-page .device-panel .device-tip svg { flex: 0 0 auto; }
+.select-page .package-panel { padding: 8px 10px; }
+.select-page .package-panel h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-page .package-panel .package-fields > div { padding-bottom: 0; border-bottom: 0; }
+.select-page .expansion-entry { margin-top: 8px; padding: 9px 11px; }
+
+@media (max-width: 760px) {
+  .select-page .device-panel { grid-template-columns: minmax(135px, .45fr) minmax(0, 1fr); }
+  .select-page .device-panel .device-tip { grid-column: 1 / -1; padding: 5px 0 0; border-top: 1px solid #eef0f2; border-left: 0; }
+}
+
+@media (max-width: 560px) {
+  .select-page .device-panel { display: flex; flex-wrap: wrap; }
+  .select-page .device-panel .card-heading { flex: 1 1 150px; }
+  .select-page .device-panel .connected-device, .select-page .device-panel .empty-device { flex: 1 1 220px; }
+  .select-page .device-panel .device-tip { flex: 1 0 100%; }
+}
+
+/* The empty center of the custom title bar carries the package summary. */
+.titlebar-package { min-width: 0; width: min(500px, 52vw); display: flex; align-items: center; gap: 13px; margin: 0 auto; padding: 0 12px; }
+.titlebar-package-copy { min-width: 0; flex: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; column-gap: 8px; row-gap: 2px; }
+.titlebar-package-copy span { color: #9aa1aa; font-size: 9px; }
+.titlebar-package-copy strong { min-width: 0; overflow: hidden; color: #424850; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.titlebar-package-copy small { grid-column: 2; min-width: 0; overflow: hidden; color: #a1a7b0; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.titlebar-package-copy small.error { color: #b42318; }
+.titlebar-package select { width: 108px; height: 27px; padding: 0 7px; border: 1px solid #d9dee4; border-radius: 6px; color: #424850; background: #fff; font-size: 9px; }
+.titlebar-package select:focus { border-color: #17191e; outline: none; }
+
+@media (max-width: 760px) {
+  .titlebar-package { width: min(360px, 45vw); gap: 7px; padding: 0 5px; }
+  .titlebar-package select { width: 88px; }
+}
+
+@media (max-width: 560px) {
+  .titlebar-package { display: none; }
+}
