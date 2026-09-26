@@ -60,7 +60,17 @@ export function App() {
 
   const currentDevice = useMemo(() => devices.find((item) => item.serial === selectedSerial) ?? devices[0], [devices, selectedSerial]);
   const addLog = (message: string) => setLogs((previous) => [...previous, message].slice(-500));
-  const currentModeLabel = currentDevice?.mode === 'fastbootd' ? 'Fastbootd' : currentDevice?.mode || '未连接';
+  const currentModeLabel = currentDevice?.mode === 'fastbootd'
+    ? 'Fastbootd'
+    : currentDevice?.mode === 'fastboot'
+      ? 'Bootloader'
+      : currentDevice?.mode === 'device'
+        ? 'Android 已开机'
+        : currentDevice?.mode === 'recovery'
+          ? 'Recovery'
+          : currentDevice?.mode === 'sideload'
+            ? 'Sideload'
+            : currentDevice?.mode || '未连接';
   const completedStageCount = stage?.stage === STAGES.length
     ? STAGES.length
     : Math.max(0, Math.min(STAGES.length, (stage?.stage ?? 1) - 1));
@@ -144,7 +154,7 @@ export function App() {
     try {
       const nextReport = await invoke<EnvReport>('run_diagnostics_cmd', { chosenSerial: selectedSerial });
       setReport(nextReport);
-      addLog(`[预检通过] ${nextReport.product} · ${currentDevice?.mode || '设备'} · super ${formatGiB(nextReport.super_bytes)}`);
+      addLog(`[预检通过] ${nextReport.product} · ${currentModeLabel} · super ${formatGiB(nextReport.super_bytes)}`);
       setStep('flash');
     } catch (error) {
       const message = errorMessage(error);
@@ -278,7 +288,7 @@ export function App() {
       {step === 'select' && <main className="wizard-page select-page">
         <WizardHeader step={2} title="选择设备与刷入方式" description="先确认机型和连接模式，再选择这次要执行的操作。" onBack={() => setStep('welcome')} />
         <div className="select-layout">
-          <section className="device-panel"><div className="card-heading"><div><span className="section-kicker">设备连接</span><h2>{currentDevice ? '已找到设备' : '等待连接设备'}</h2></div><button className="icon-button" onClick={() => void scanDevices()} disabled={isScanning} title="刷新设备">{isScanning ? <Loader2 size={17} className="spin" /> : <RefreshCw size={17} />}</button></div>{currentDevice ? <div className="connected-device"><div className="device-symbol"><Smartphone size={23} /></div><div><strong>{shortSerial(currentDevice.serial)}</strong><span>{currentModeLabel} · {currentDevice.product || '机型待检测'}</span></div><CheckCircle2 size={18} className="green-icon" /></div> : <div className="empty-device"><Smartphone size={28} /><strong>未检测到设备</strong><p>将手机置于 Bootloader/Fastboot 或 Recovery 模式，然后点击刷新。</p></div>}<div className="device-tip"><Info size={15} /> 工具会在准备阶段自动切换到需要的模式。</div></section>
+        <section className="device-panel"><div className="card-heading"><div><span className="section-kicker">设备连接</span><h2>{currentDevice ? '已找到设备' : '等待连接设备'}</h2></div><button className="icon-button" onClick={() => void scanDevices()} disabled={isScanning} title="刷新设备">{isScanning ? <Loader2 size={17} className="spin" /> : <RefreshCw size={17} />}</button></div>{currentDevice ? <div className="connected-device"><div className="device-symbol"><Smartphone size={23} /></div><div><strong>{shortSerial(currentDevice.serial)}</strong><span>{currentModeLabel} · {currentDevice.product || '机型待检测'}</span></div><CheckCircle2 size={18} className="green-icon" /></div> : <div className="empty-device"><Smartphone size={28} /><strong>未检测到设备</strong><p>手机开机、Recovery 或 Bootloader 状态都可以识别，连接后点击刷新。</p></div>}<div className="device-tip"><Info size={15} /> {currentDevice?.mode === 'device' || currentDevice?.mode === 'recovery' || currentDevice?.mode === 'sideload' ? '设备当前已连接，准备阶段会自动重启到 bootloader。' : '工具会在准备阶段自动切换到需要的模式。'}</div></section>
           <section className="package-panel"><div className="section-kicker">刷机包配置</div><h2>{profile?.display_name || '等待刷机包配置'}</h2>{profileError && <p className="package-error">{profileError}</p>}<label className="model-select-row"><span>目标机型</span><select value={selectedModel || profile?.codenames[0] || ''} onChange={(event) => setSelectedModel(event.target.value)} disabled={!profile?.codenames.length}>{profile?.codenames.map((codename) => <option value={codename} key={codename}>{codename}</option>)}</select></label><div className="package-fields"><div><span>支持机型</span><b>{profile?.codenames.join(' / ') || '配置加载后显示'}</b></div><div><span>Super 最低要求</span><b>{formatGiB(profile?.minimum_super_bytes)}</b></div><div><span>作者 / 构建日期</span><b>{profile ? `${profile.author || '—'} · ${profile.build_date || '—'}` : '—'}</b></div></div></section>
         </div>
         <section className="mode-section"><div className="section-kicker">刷入模式</div><h2>这次要执行哪种操作？</h2><div className="mode-grid"><button className={`mode-card ${mode === 'clean' ? 'selected' : ''}`} onClick={() => setMode('clean')}><span className="mode-icon danger"><Zap size={19} /></span><span><strong>完整线刷</strong><small>首次安装或彻底重装，会清空 userdata</small></span><span className="radio-dot" /></button><button className={`mode-card ${mode === 'update' ? 'selected' : ''}`} onClick={() => setMode('update')}><span className="mode-icon safe"><RotateCw size={19} /></span><span><strong>系统更新</strong><small>覆盖系统分区，保留 userdata 和应用</small></span><span className="radio-dot" /></button></div></section>

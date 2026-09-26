@@ -59,10 +59,28 @@ pub async fn scan_devices(
 
     if let Ok(adb_devs) = session.list_adb_devices() {
         for d in adb_devs {
+            let product = if matches!(d.state.as_str(), "device" | "recovery") {
+                let mut adb_session = DeviceSession::new(
+                    profile.fastboot(),
+                    profile.adb(),
+                    Logger::new(None),
+                    false,
+                );
+                adb_session.serial = Some(d.serial.clone());
+                adb_session
+                    .run_adb(&["shell", "getprop", "ro.product.device"], None, true)
+                    .ok()
+                    .and_then(|result| result.stdout.lines().find_map(|line| {
+                        let value = line.trim();
+                        (!value.is_empty()).then(|| value.to_string())
+                    }))
+            } else {
+                None
+            };
             list.push(DeviceSummary {
                 serial: d.serial,
                 mode: d.state,
-                product: None,
+                product,
             });
         }
     }

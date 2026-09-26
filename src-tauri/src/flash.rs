@@ -226,6 +226,44 @@ pub fn run_image_op(profile: &FlashProfile, session: &DeviceSession, op: &ImageO
     )
 }
 
+pub fn has_data_operation(profile: &FlashProfile, base_partition: &str) -> bool {
+    profile.final_data.iter().any(|op| {
+        let partition = op.partition.trim().to_lowercase();
+        partition == base_partition
+            || partition == format!("{}_a", base_partition)
+            || partition == format!("{}_b", base_partition)
+            || partition == format!("{}_ab", base_partition)
+    })
+}
+
+fn ensure_clean_data_partitions(
+    profile: &FlashProfile,
+    session: &DeviceSession,
+    preserve_data: bool,
+) -> Result<()> {
+    if preserve_data {
+        return Ok(());
+    }
+
+    for partition in ["userdata", "metadata"] {
+        if has_data_operation(profile, partition) {
+            continue;
+        }
+
+        session.logger.write(&format!(
+            "  ├─ 配置未声明 {} 操作，执行完整线刷默认擦除",
+            partition
+        ));
+        session.run_fastboot(
+            &["erase", partition],
+            Some(&format!("格式化 {}", partition)),
+            false,
+        )?;
+    }
+
+    Ok(())
+}
+
 pub fn restore_dat_to_raw(
     profile: &FlashProfile,
     session: &DeviceSession,
@@ -620,6 +658,7 @@ pub fn execute_flash_pipeline(
         }
         run_image_op(profile, &session, op)?;
     }
+    ensure_clean_data_partitions(profile, &session, preserve_data)?;
     if let Some(ref slot) = profile.set_active_slot {
         session.run_fastboot(&["set_active", slot], Some(&format!("设置最终活动槽位 {}", slot)), true)?;
     }
