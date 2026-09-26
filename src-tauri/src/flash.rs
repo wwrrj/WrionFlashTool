@@ -424,6 +424,43 @@ fn create_logical_partitions_from_profile(profile: &FlashProfile, session: &Devi
     ok_any
 }
 
+fn clear_profile_logical_partitions(profile: &FlashProfile, session: &DeviceSession) {
+    let selected_suffix = if profile.slot_suffix.is_empty() {
+        ""
+    } else {
+        &profile.slot_suffix
+    };
+    let other_suffix = match selected_suffix {
+        "_a" => "_b",
+        "_b" => "_a",
+        _ => "",
+    };
+    let mut names = Vec::new();
+    for part in &profile.dynamic_partitions {
+        let bases = [
+            format!("{}{}", part.name, selected_suffix),
+            format!("{}{}", part.name, other_suffix),
+            part.name.clone(),
+        ];
+        for base in bases {
+            for candidate in [base.clone(), format!("{}-cow", base), format!("{}_cow", base)] {
+                if !names.iter().any(|name| name == &candidate) {
+                    names.push(candidate);
+                }
+            }
+        }
+    }
+
+    session.logger.write("  │  清理现有动态逻辑分区（含另一槽位与 COW）以释放 super 空间");
+    for name in names {
+        let _ = session.run_fastboot(
+            &["delete-logical-partition", &name],
+            Some(&format!("删除逻辑分区 {}", name)),
+            true,
+        );
+    }
+}
+
 pub fn wipe_or_init_super(
     profile: &FlashProfile,
     session: &DeviceSession,
@@ -440,6 +477,12 @@ pub fn wipe_or_init_super(
         std::thread::sleep(Duration::from_secs(3));
         session.wait_for_mode(true, 90)?;
     }
+
+    let _ = session.run_fastboot(
+        &["snapshot-update", "cancel"],
+        Some("取消 Virtual A/B 快照"),
+        true,
+    );
 
     std::fs::create_dir_all(&profile.work_dir)?;
     let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
@@ -536,6 +579,7 @@ pub fn flash_dynamic_partitions(
 
     let wipe_img = prepare_wipe_super_source(profile, session, app_handle)?;
     wipe_or_init_super(profile, session, &wipe_img)?;
+    clear_profile_logical_partitions(profile, session);
 
     let _ = std::fs::remove_dir_all(&profile.work_dir);
     std::fs::create_dir_all(&profile.work_dir)?;

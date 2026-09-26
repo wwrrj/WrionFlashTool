@@ -135,17 +135,20 @@ fn test_sdat2img_and_wipe_super() {
     let raw = root.join("super_empty.raw.img");
     let wipe = root.join("wipe.img");
 
-    std::fs::write(&tf, "4\n2\n0\n0\nnew 2,0,1\n").unwrap();
-    let mut payload = b"gDla".to_vec();
-    payload.resize(4096, 0);
+    std::fs::write(&tf, "4\n4\n0\n0\nnew 2,0,4\n").unwrap();
+    let mut payload = vec![0u8; 16384];
+    payload[4096..4100].copy_from_slice(b"gDla");
+    payload[8192..8196].copy_from_slice(b"gDla");
+    payload[12288..12292].copy_from_slice(b"0PLA");
     std::fs::write(&dat, &payload).unwrap();
 
     let sz = sdat2img(&tf, &dat, &raw, 4096, |_, _| {}).unwrap();
-    assert_eq!(sz, 8192);
+    assert_eq!(sz, 16384);
 
     let built = build_wipe_super_image(&raw, &wipe, 16 * 1024 * 1024).unwrap();
     assert!(built.is_file());
     let wipe_data = std::fs::read(&wipe).unwrap();
     assert_eq!(&wipe_data[0..4], b"gDla");
     assert_eq!(&wipe_data[4096..4100], b"gDla");
+    assert_eq!(&wipe_data[8192..8196], b"0PLA");
 }

@@ -9,6 +9,9 @@ pub const CHUNK_RAW: u16 = 0xCAC1;
 pub const CHUNK_FILL: u16 = 0xCAC2;
 pub const CHUNK_DONT_CARE: u16 = 0xCAC3;
 pub const CHUNK_CRC32: u16 = 0xCAC4;
+const LP_GEOMETRY_MAGIC: &[u8] = b"gDla";
+const LP_METADATA_MAGIC: &[u8] = b"0PLA";
+const LP_GEOMETRY_SIZE: usize = 4096;
 
 pub fn is_android_sparse(path: &Path) -> bool {
     let mut file = match File::open(path) {
@@ -111,6 +114,41 @@ pub fn extract_sparse_prefix(sparse_path: &Path, out_path: &Path, max_bytes: usi
     Ok(written)
 }
 
+fn magic_at(data: &[u8], offset: usize, magic: &[u8]) -> bool {
+    data.get(offset..offset.saturating_add(magic.len())) == Some(magic)
+}
+
+fn normalize_wipe_super_payload(data: &[u8]) -> Result<Vec<u8>> {
+    let min_len = LP_GEOMETRY_SIZE * 3 + LP_METADATA_MAGIC.len();
+    if data.len() < min_len {
+        bail!("空 super 元数据过短，无法重组 wipe-super 镜像");
+    }
+
+    // A host wipe-super image starts with primary geometry, backup geometry,
+    // then the metadata header. A DAT restored from a physical super image
+    // has an additional 4 KiB reserved region before those structures.
+    if magic_at(data, 0, LP_GEOMETRY_MAGIC)
+        && magic_at(data, LP_GEOMETRY_SIZE, LP_GEOMETRY_MAGIC)
+        && magic_at(data, LP_GEOMETRY_SIZE * 2, LP_METADATA_MAGIC)
+    {
+        return Ok(data.to_vec());
+    }
+
+    if magic_at(data, LP_GEOMETRY_SIZE, LP_GEOMETRY_MAGIC)
+        && magic_at(data, LP_GEOMETRY_SIZE * 2, LP_GEOMETRY_MAGIC)
+        && magic_at(data, LP_GEOMETRY_SIZE * 3, LP_METADATA_MAGIC)
+    {
+        let geometry = &data[LP_GEOMETRY_SIZE..LP_GEOMETRY_SIZE * 2];
+        let mut rebuilt = Vec::with_capacity(data.len() - LP_GEOMETRY_SIZE);
+        rebuilt.extend_from_slice(geometry);
+        rebuilt.extend_from_slice(geometry);
+        rebuilt.extend_from_slice(&data[LP_GEOMETRY_SIZE * 3..]);
+        return Ok(rebuilt);
+    }
+
+    bail!("空 super 元数据中未找到有效的 LP geometry/metadata 布局")
+}
+
 pub fn build_wipe_super_image(source: &Path, out_path: &Path, max_bytes: usize) -> Result<PathBuf> {
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -129,26 +167,8 @@ pub fn build_wipe_super_image(source: &Path, out_path: &Path, max_bytes: usize) 
     }
 
     let data = std::fs::read(&prefix)?;
-    let magic = b"gDla";
-    let idx = data.windows(magic.len()).position(|window| window == magic)
-        .ok_or_else(|| anyhow!("未在 {:?} 中找到 LP geometry 魔数 (gDla)", source))?;
-
-    if idx + 4096 > data.len() {
-        bail!("LP geometry 块已被截断");
-    }
-
-    let geom = &data[idx..idx + 4096];
-    let tail = &data[idx + 4096..];
-
-    // Rebuild: primary geom (4096) + backup geom (4096) + tail
-    let mut rebuilt = Vec::with_capacity(4096 * 2 + tail.len());
-    rebuilt.extend_from_slice(geom);
-    rebuilt.extend_from_slice(geom);
-    rebuilt.extend_from_slice(tail);
-
-    if !rebuilt.starts_with(b"gDla") {
-        bail!("重建的 wipe-super 镜像偏移量 0 处缺少 gDla");
-    }
+    let rebuilt = normalize_wipe_super_payload(&data)
+        .map_err(|error| anyhow!("无法规范化 {:?} 的 wipe-super 元数据：{}", source, error))?;
 
     std::fs::write(out_path, &rebuilt)?;
     let _ = std::fs::remove_file(&prefix);
