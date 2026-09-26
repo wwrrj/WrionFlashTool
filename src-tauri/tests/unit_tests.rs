@@ -1,5 +1,6 @@
 use tempfile::tempdir;
 use harusora_flash_tool_lib::config::load_profile;
+use harusora_flash_tool_lib::flash::{is_overflow_flash_error, logical_flash_size, needs_logical_resize};
 use harusora_flash_tool_lib::package::is_preserved_data_partition;
 use harusora_flash_tool_lib::sdat2img::{parse_ranges, sdat2img};
 use harusora_flash_tool_lib::sparse::build_wipe_super_image;
@@ -99,6 +100,21 @@ fn test_preserved_data_partitions() {
     for name in &["boot_ab", "system_a", "vendor_a", "mi_ext_a", "misc"] {
         assert!(!is_preserved_data_partition(name), "{} should NOT be preserved", name);
     }
+}
+
+#[test]
+fn test_dynamic_partition_size_guard() {
+    assert!(needs_logical_resize(None, 12 * 1024 * 1024));
+    assert!(needs_logical_resize(Some(8 * 1024 * 1024), 12 * 1024 * 1024));
+    assert!(!needs_logical_resize(Some(16 * 1024 * 1024), 12 * 1024 * 1024));
+    assert_eq!(logical_flash_size(12 * 1024 * 1024 + 1, None), 12 * 1024 * 1024 + 4096);
+}
+
+#[test]
+fn test_overflow_error_detection() {
+    assert!(is_overflow_flash_error("FAILED (remote: Value too large for defined data type)"));
+    assert!(is_overflow_flash_error("EOVERFLOW"));
+    assert!(!is_overflow_flash_error("FAILED (remote: Not enough space)"));
 }
 
 #[test]

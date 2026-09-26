@@ -52,9 +52,52 @@ pub fn recreate_logical_partition(session: &DeviceSession, name: &str, size_byte
         true,
     )?;
     if res.code != 0 {
-        session.logger.write(&format!("create-logical-partition {} 失败: {}", name, res.text));
+        bail!(
+            "创建逻辑分区 {} 失败（{}）：{}",
+            name,
+            res.code,
+            res.text
+        );
     }
     Ok(())
+}
+
+/// Return whether the device-side logical partition must grow before flashing.
+/// `None` means fastbootd could not report the current size, so the caller must
+/// use an explicit resize/recreate attempt instead of relying on auto-resize.
+pub fn needs_logical_resize(current_bytes: Option<u64>, required_bytes: u64) -> bool {
+    current_bytes.map_or(true, |current| current < required_bytes)
+}
+
+fn ensure_logical_partition(
+    session: &DeviceSession,
+    partition: &str,
+    required_bytes: u64,
+    force_recreate: bool,
+) -> Result<()> {
+    if !force_recreate {
+        let reported = session.getvar(&format!("partition-size:{}", partition), true)?;
+        let current = reported.as_deref().and_then(|value| parse_size(value).ok());
+        if !needs_logical_resize(current, required_bytes) {
+            return Ok(());
+        }
+
+        let size_str = required_bytes.to_string();
+        let resized = session.run_fastboot(
+            &["resize-logical-partition", partition, &size_str],
+            Some(&format!("resize-logical-partition {} {}", partition, required_bytes)),
+            true,
+        )?;
+        if resized.code == 0 {
+            return Ok(());
+        }
+        session.logger.write(&format!(
+            "  │  {} 无法直接 resize，改为删除并重建：{}",
+            partition, resized.text
+        ));
+    }
+
+    recreate_logical_partition(session, partition, required_bytes)
 }
 
 pub fn is_separate_id_partition(name: &str) -> bool {
@@ -397,9 +440,7 @@ pub fn flash_dynamic_partition_image(
     logical_size: u64,
 ) -> Result<()> {
     let small = logical_size <= SMALL_LOGICAL_RECREATE_BYTES;
-    if small {
-        recreate_logical_partition(session, partition, logical_size)?;
-    }
+    ensure_logical_partition(session, partition, logical_size, small)?;
     let img_str = image.display().to_string();
     let res = session.run_fastboot(&["flash", partition, &img_str], Some(&format!("刷入 {}", partition)), true)?;
     if res.code == 0 {
@@ -409,7 +450,7 @@ pub fn flash_dynamic_partition_image(
     if is_overflow_flash_error(&res.text) || small {
         let retry_size = logical_size.max(MIN_LOGICAL_FLASH_BYTES);
         session.logger.write("  │  逻辑分区写入失败，正在重建后重试…");
-        recreate_logical_partition(session, partition, retry_size)?;
+        ensure_logical_partition(session, partition, retry_size, true)?;
         let res2 = session.run_fastboot(&["flash", partition, &img_str], Some(&format!("刷入 {}（重试）", partition)), true)?;
         if res2.code == 0 {
             return Ok(());
