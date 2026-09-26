@@ -3,7 +3,9 @@ use harusora_flash_tool_lib::config::load_profile;
 use harusora_flash_tool_lib::flash::{is_overflow_flash_error, logical_flash_size, needs_logical_resize};
 use harusora_flash_tool_lib::package::is_preserved_data_partition;
 use harusora_flash_tool_lib::sdat2img::{parse_ranges, sdat2img};
-use harusora_flash_tool_lib::sparse::build_wipe_super_image;
+use harusora_flash_tool_lib::sparse::{
+    build_android_sparse_from_raw, build_wipe_super_image, extract_sparse_prefix,
+};
 
 const TEST_PROFILE: &str = r#"
 [package]
@@ -151,4 +153,21 @@ fn test_sdat2img_and_wipe_super() {
     assert_eq!(&wipe_data[0..4], b"gDla");
     assert_eq!(&wipe_data[4096..4100], b"gDla");
     assert_eq!(&wipe_data[8192..8196], b"0PLA");
+}
+
+#[test]
+fn test_build_physical_super_sparse_from_raw_prefix() {
+    let dir = tempdir().unwrap();
+    let raw = dir.path().join("super.raw.img");
+    let sparse = dir.path().join("super.sparse.img");
+    let prefix = dir.path().join("prefix.img");
+    let mut data = vec![0u8; 8192];
+    data[4096..4100].copy_from_slice(b"gDla");
+    std::fs::write(&raw, &data).unwrap();
+
+    build_android_sparse_from_raw(&raw, 16384, &sparse, 16 * 1024 * 1024).unwrap();
+    extract_sparse_prefix(&sparse, &prefix, 16384).unwrap();
+    let restored = std::fs::read(&prefix).unwrap();
+    assert_eq!(restored.len(), 16384);
+    assert_eq!(&restored[4096..4100], b"gDla");
 }

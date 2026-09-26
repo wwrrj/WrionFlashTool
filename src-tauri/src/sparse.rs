@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use anyhow::{anyhow, bail, Context, Result};
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 pub const SPARSE_MAGIC: u32 = 0xED26FF3A;
 pub const CHUNK_RAW: u16 = 0xCAC1;
@@ -173,5 +173,64 @@ pub fn build_wipe_super_image(source: &Path, out_path: &Path, max_bytes: usize) 
     std::fs::write(out_path, &rebuilt)?;
     let _ = std::fs::remove_file(&prefix);
 
+    Ok(out_path.to_path_buf())
+}
+
+/// Build a physical-super sparse image from the metadata prefix of a raw
+/// super image. The remaining blocks are DONT_CARE, so a 16 GiB super image
+/// does not need to be materialized on the host disk.
+pub fn build_android_sparse_from_raw(
+    raw_path: &Path,
+    total_bytes: u64,
+    out_path: &Path,
+    max_prefix_bytes: usize,
+) -> Result<PathBuf> {
+    const BLOCK_SIZE: u64 = 4096;
+    if total_bytes == 0 || total_bytes % BLOCK_SIZE != 0 {
+        bail!("空 super 逻辑大小必须是 4096 的整数倍：{}", total_bytes);
+    }
+
+    let prefix_limit = (total_bytes as usize).min(max_prefix_bytes);
+    let raw = File::open(raw_path)
+        .with_context(|| format!("无法打开 raw super：{:?}", raw_path))?;
+    let mut prefix = Vec::with_capacity(prefix_limit);
+    raw.take(prefix_limit as u64).read_to_end(&mut prefix)?;
+    if prefix.is_empty() {
+        bail!("raw super 元数据为空：{:?}", raw_path);
+    }
+
+    let padded_prefix_bytes = ((prefix.len() as u64 + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+    let total_blocks = total_bytes / BLOCK_SIZE;
+    let raw_blocks = (padded_prefix_bytes / BLOCK_SIZE).min(total_blocks);
+    prefix.resize((raw_blocks * BLOCK_SIZE) as usize, 0);
+    let rest_blocks = total_blocks - raw_blocks;
+
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut out = File::create(out_path)
+        .with_context(|| format!("无法创建 sparse super：{:?}", out_path))?;
+    out.write_u32::<LittleEndian>(SPARSE_MAGIC)?;
+    out.write_u16::<LittleEndian>(1)?;
+    out.write_u16::<LittleEndian>(0)?;
+    out.write_u16::<LittleEndian>(28)?;
+    out.write_u16::<LittleEndian>(12)?;
+    out.write_u32::<LittleEndian>(BLOCK_SIZE as u32)?;
+    out.write_u32::<LittleEndian>(total_blocks as u32)?;
+    out.write_u32::<LittleEndian>(if rest_blocks > 0 { 2 } else { 1 })?;
+    out.write_u32::<LittleEndian>(0)?;
+
+    out.write_u16::<LittleEndian>(CHUNK_RAW)?;
+    out.write_u16::<LittleEndian>(0)?;
+    out.write_u32::<LittleEndian>(raw_blocks as u32)?;
+    out.write_u32::<LittleEndian>((12 + prefix.len()) as u32)?;
+    out.write_all(&prefix)?;
+
+    if rest_blocks > 0 {
+        out.write_u16::<LittleEndian>(CHUNK_DONT_CARE)?;
+        out.write_u16::<LittleEndian>(0)?;
+        out.write_u32::<LittleEndian>(rest_blocks as u32)?;
+        out.write_u32::<LittleEndian>(12)?;
+    }
     Ok(out_path.to_path_buf())
 }

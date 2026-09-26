@@ -9,7 +9,7 @@ use crate::config::{FlashProfile, ImageOp};
 use crate::device::{parse_size, run_process, DeviceSession, EnvReport};
 use crate::package::{is_preserved_data_partition, read_package_anti, validate_package};
 use crate::sdat2img::sdat2img;
-use crate::sparse::{build_wipe_super_image, is_android_sparse};
+use crate::sparse::{build_android_sparse_from_raw, build_wipe_super_image, is_android_sparse};
 
 pub const MIN_LOGICAL_FLASH_BYTES: u64 = 1024 * 1024;
 pub const SMALL_LOGICAL_RECREATE_BYTES: u64 = 8 * 1024 * 1024;
@@ -404,6 +404,88 @@ pub fn prepare_wipe_super_source(
     bail!("线刷配置未指定空 super 的 IMG 或 DAT");
 }
 
+pub fn prepare_empty_super_flash_image(
+    profile: &FlashProfile,
+    session: &DeviceSession,
+    app_handle: Option<&AppHandle>,
+) -> Result<PathBuf> {
+    std::fs::create_dir_all(&profile.work_dir)?;
+
+    if let Some(ref name) = profile.wipe_super_dat {
+        let dat = profile.super_dir.join(format!("{}.new.dat", name));
+        let raw = profile.work_dir.join(format!("{}.raw.img", name));
+        let sparse = profile.work_dir.join("super_empty.sparse.img");
+        session.logger.write(&format!(
+            "  │  从 {}.new.dat 生成物理 super sparse 镜像",
+            name
+        ));
+        let logical_bytes = restore_dat_to_raw(profile, session, name, &dat, &raw, app_handle)?;
+        build_android_sparse_from_raw(&raw, logical_bytes, &sparse, 16 * 1024 * 1024)?;
+        let _ = std::fs::remove_file(&raw);
+        session.logger.write(&format!(
+            "  │  空 super sparse 已生成：{} 字节逻辑容量，{}",
+            logical_bytes,
+            sparse.display()
+        ));
+        return Ok(sparse);
+    }
+
+    let image = profile
+        .wipe_super_image
+        .as_ref()
+        .map(|name| profile.images_dir.join(name))
+        .ok_or_else(|| anyhow!("线刷配置未指定空 super 的 IMG 或 DAT"))?;
+    if !image.is_file() {
+        bail!("找不到空 super 刷写源：{:?}", image);
+    }
+    if is_android_sparse(&image) {
+        return Ok(image);
+    }
+
+    let sparse = profile.work_dir.join("super_empty.sparse.img");
+    let logical_bytes = image.metadata()?.len();
+    build_android_sparse_from_raw(&image, logical_bytes, &sparse, 16 * 1024 * 1024)?;
+    Ok(sparse)
+}
+
+pub fn flash_empty_super_bootloader(
+    session: &mut DeviceSession,
+    image: &Path,
+) -> Result<()> {
+    if !image.is_file() {
+        bail!("空 super sparse 镜像不存在：{:?}", image);
+    }
+
+    let is_userspace = session
+        .getvar("is-userspace", true)?
+        .map_or(false, |value| value.to_lowercase() == "yes");
+    if is_userspace {
+        session.logger.write("  │  当前已在 fastbootd，先返回 bootloader 刷写物理 super");
+        session.run_fastboot(
+            &["reboot", "bootloader"],
+            Some("返回 bootloader"),
+            false,
+        )?;
+        if !session.dry_run {
+            session.wait_for_mode(false, 90)?;
+        }
+    }
+
+    let image_path = image.display().to_string();
+    let _ = session.run_fastboot(
+        &["erase", "super"],
+        Some("擦除物理 super"),
+        true,
+    )?;
+    session.run_fastboot(
+        &["flash", "super", &image_path],
+        Some("在 bootloader 刷入空 super"),
+        false,
+    )?;
+    session.logger.write("  │  空 super 已写入物理分区");
+    Ok(())
+}
+
 fn create_logical_partitions_from_profile(profile: &FlashProfile, session: &DeviceSession) -> bool {
     if profile.dynamic_partitions.is_empty() {
         return false;
@@ -569,16 +651,17 @@ pub fn flash_dynamic_partition_image(
 
 pub fn flash_dynamic_partitions(
     profile: &FlashProfile,
-    session: &DeviceSession,
+    session: &mut DeviceSession,
     app_handle: Option<&AppHandle>,
 ) -> Result<()> {
-    session.run_fastboot(&["reboot", "fastboot"], Some("重启到 fastbootd"), false)?;
+    let empty_super = prepare_empty_super_flash_image(profile, session, app_handle)?;
+    flash_empty_super_bootloader(session, &empty_super)?;
+
+    session.run_fastboot(&["reboot", "fastboot"], Some("进入 fastbootd"), false)?;
     if !session.dry_run {
         session.wait_for_mode(true, 90)?;
     }
 
-    let wipe_img = prepare_wipe_super_source(profile, session, app_handle)?;
-    wipe_or_init_super(profile, session, &wipe_img)?;
     clear_profile_logical_partitions(profile, session);
 
     let _ = std::fs::remove_dir_all(&profile.work_dir);
@@ -715,7 +798,7 @@ pub fn execute_flash_pipeline(
     // Stage 4: Super & Dynamic
     emit_stage(4, "super 与动态分区刷写");
     if !profile.dynamic_partitions.is_empty() {
-        flash_dynamic_partitions(profile, &session, app_handle)?;
+        flash_dynamic_partitions(profile, &mut session, app_handle)?;
     }
 
     // Stage 5: Final Data
