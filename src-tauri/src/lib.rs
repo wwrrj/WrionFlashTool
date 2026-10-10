@@ -10,6 +10,8 @@ pub mod idflash;
 pub mod expand;
 pub mod rompkg;
 pub mod backup;
+pub mod official;
+pub mod platform_tools;
 pub mod commands;
 
 pub fn run() {

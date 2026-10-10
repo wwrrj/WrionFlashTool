@@ -24,6 +24,16 @@ const previewProfile: FlashProfile = {
     userdata_part: 33, backup_dir: 'D:\\Preview\\ROM\\backup', sgdisk_dir: '', remote_sgdisk_dir: '',
     confirm_word: 'EXPAND', restore_confirm_word: 'RESTORE',
   },
+  kind: 'harusora',
+};
+
+/** 预览用的小米官方线刷包（?preview=official）。 */
+const previewOfficialProfile: FlashProfile = {
+  ...previewProfile,
+  package_name: '小米官方线刷包 OS2.0.221.0.VNBCNXM', display_name: 'shennong', author: 'Xiaomi 官方', qq_group: '', build_date: '2025-09-28',
+  notes: ['这是小米官方线刷包。工具会逐条解析并执行包内 flash_all 脚本中的命令，遇到无法识别的内容会直接拒绝。', '工具不会执行 flash_all_lock 或任何锁定 Bootloader 的命令。'],
+  dynamic_partitions: [], post_flash_id: false, expansion: undefined, kind: 'official',
+  official: { device: 'shennong', build_number: 'OS2.0.221.0.VNBCNXM', clean_script: 'flash_all.bat', keep_data_script: 'flash_all_except_storage.bat' },
 };
 
 const previewBackups: BackupInfo[] = [
@@ -53,12 +63,13 @@ const previewPlan: ExpandPlan = {
 };
 
 /** 预览模式下“已解压”的状态；地址栏带 ?preview=ready 时直接视为已就绪。 */
-let previewReady = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('preview') === 'ready';
+const previewParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('preview') : null;
+let previewReady = previewParam === 'ready' || previewParam === 'official';
 
 export const api = {
   getProfile: (): Promise<FlashProfile> => {
     if (isTauri()) return invoke('get_profile', {});
-    return previewReady ? Promise.resolve(previewProfile) : Promise.reject(new Error('未找到刷机配置（浏览器预览）'));
+    return previewReady ? Promise.resolve(previewParam === 'official' ? previewOfficialProfile : previewProfile) : Promise.reject(new Error('未找到刷机配置（浏览器预览）'));
   },
 
   scanDevices: async (): Promise<DeviceSummary[]> => {

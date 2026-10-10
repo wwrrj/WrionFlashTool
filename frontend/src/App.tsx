@@ -213,7 +213,7 @@ export function App() {
         <PlanPage profile={profile} options={options} onChange={patchOptions} onBack={() => setStep('device')} onNext={() => setStep('review')} onOpenExpand={openExpand} />
       )}
       {step === 'review' && profile && <ReviewPage profile={profile} device={device} options={options} onBack={() => setStep('plan')} onStart={() => void start()} />}
-      {step === 'run' && <RunPage preparing={preparing} extraLabel={extraLabel} stage={events.stage} partition={events.partition} logs={events.logs} onShowLogs={showLogs} />}
+      {step === 'run' && <RunPage preparing={preparing} extraLabel={extraLabel} stage={events.stage} partition={events.partition} step={events.step} logs={events.logs} onShowLogs={showLogs} />}
       {step === 'done' && <DonePage reboot={options.reboot} onAgain={again} onShowLogs={showLogs} onOpenLogsFolder={openLogsFolder} />}
       {inExpand && profile?.expansion && (
         <ExpandPage config={profile.expansion} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setExpandBusy} onExit={exitExpand} />

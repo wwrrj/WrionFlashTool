@@ -33,6 +33,16 @@ ROM 根目录/
    └─ cygwin1.dll                  如工具链需要
 ```
 
+### 小米官方线刷包
+
+也可以直接选择小米官方线刷包的文件夹（含 `flash_all.bat` 和 `images/`）。工具不会运行 bat，而是逐行解析脚本，只执行其中的机型校验、防回滚校验、按 `getvar` 结果的条件分支，以及 `flash` / `erase` / `set_active` / `reboot` 命令；遇到无法识别的行、包外路径或任何锁定 Bootloader 的命令（如 `flash_all_lock.bat` 里的 `oem lock`）都会拒绝执行。
+
+- 完整线刷对应 `flash_all.bat`，保留数据更新对应 `flash_all_except_storage.bat`（脚本若仍会改写 userdata/metadata 则不提供该选项）。
+
+### 内置 platform-tools
+
+所有刷机包（Harusora 刷机包和官方线刷包）都使用编译进 exe 的完整 platform-tools 36.0.1（`src-tauri/resources/platform-tools`：fastboot、adb 及其 DLL，以及 `fastboot -w` 生成 userdata 所需的 make_f2fs / mke2fs），首次使用时释放到 `%LOCALAPPDATA%\HarusoraFlashTool\platform-tools-<版本>`，旧版本目录会自动清理。exe 旁边若有完整的 `tools\platform-tools`，优先使用它；刷机包自带的 platform-tools 不再使用。
+
 ## 支持的操作
 
 - **完整线刷**：写入固件、启动链、动态分区和数据相关操作，并要求输入确认词。

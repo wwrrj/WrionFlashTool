@@ -80,6 +80,20 @@ pub struct FlashProfile {
     pub post_flash_id: bool,
 
     pub expansion: Option<ExpansionConfig>,
+
+    /// "harusora"（flash_profile.toml 驱动的刷机包）或 "official"（小米官方线刷包）。
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    /// 官方线刷包的附加信息；Harusora 刷机包为空。
+    #[serde(default)]
+    pub official: Option<crate::official::OfficialInfo>,
+    /// 指定时 fastboot / adb 直接取自这个目录（内置的完整 platform-tools）；为空时用刷机包 tools/platform-tools。
+    #[serde(default)]
+    pub platform_tools_dir: Option<PathBuf>,
+}
+
+fn default_kind() -> String {
+    "harusora".to_string()
 }
 
 impl FlashProfile {
@@ -99,11 +113,21 @@ impl FlashProfile {
     }
 
     pub fn fastboot(&self) -> PathBuf {
-        self.resolve_tool(&["platform-tools", "fastboot.exe"])
+        match self.platform_tools_dir {
+            Some(ref dir) => dir.join("fastboot.exe"),
+            None => self.resolve_tool(&["platform-tools", "fastboot.exe"]),
+        }
     }
 
     pub fn adb(&self) -> PathBuf {
-        self.resolve_tool(&["platform-tools", "adb.exe"])
+        match self.platform_tools_dir {
+            Some(ref dir) => dir.join("adb.exe"),
+            None => self.resolve_tool(&["platform-tools", "adb.exe"]),
+        }
+    }
+
+    pub fn is_official(&self) -> bool {
+        self.kind == "official"
     }
 
     pub fn img2simg(&self) -> PathBuf {
@@ -602,5 +626,9 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
         enable_root_menu,
         post_flash_id,
         expansion: expansion_cfg,
+        kind: default_kind(),
+        official: None,
+        // fastboot / adb 优先使用内置的完整 platform-tools；释放失败时才退回刷机包自带的
+        platform_tools_dir: crate::platform_tools::tools_dir().ok(),
     })
 }

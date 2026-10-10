@@ -1,0 +1,5 @@
+device=shennong
+build_number=OS2.0.221.0.VNBCNXM
+userdata_version=20250928.0000.00
+mi_os_build_version=OS2.0.221.0.VNBCNXM
+custom_bulid_number=shennong.cn.1.1.0320

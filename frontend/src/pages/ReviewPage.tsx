@@ -34,6 +34,9 @@ export function ReviewPage({ profile, device, options, onBack, onStart }: Review
           <div><dt>刷机包</dt><dd>{profile.package_name || profile.display_name}</dd></div>
           <div><dt>手机</dt><dd>{device?.product || '未知机型'} <small className="mono">{modeLabel(device?.mode)} · {shortSerial(device?.serial)}</small></dd></div>
           <div><dt>刷入方式</dt><dd>{clean ? '完整线刷（清空数据）' : '保留数据更新'}</dd></div>
+          {profile.kind === 'official' && profile.official && (
+            <div><dt>执行脚本</dt><dd className="mono">{clean ? profile.official.clean_script : profile.official.keep_data_script}</dd></div>
+          )}
           <div><dt>附加操作</dt><dd>{extras.length ? extras.join('；') : '无'}</dd></div>
           <div><dt>完成后</dt><dd>{options.reboot ? '自动重启手机' : '不自动重启'}</dd></div>
         </dl>

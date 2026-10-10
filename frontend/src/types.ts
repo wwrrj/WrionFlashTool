@@ -62,6 +62,9 @@ export interface FlashProfile {
   enable_root_menu: boolean;
   post_flash_id: boolean;
   expansion?: ExpansionConfig;
+  /** harusora：flash_profile.toml 驱动的刷机包；official：小米官方线刷包（按 flash_all 脚本刷入）。 */
+  kind: 'harusora' | 'official';
+  official?: OfficialInfo | null;
 }
 
 export interface DeviceSummary {
@@ -161,4 +164,20 @@ export interface ExpandProgressEvent {
   /** 当前步骤序号（从 0 开始）；等于 steps.length 表示全部完成。 */
   current: number;
   detail?: string | null;
+}
+
+export interface OfficialInfo {
+  device: string;
+  build_number: string;
+  /** 完整线刷脚本（flash_all.bat），没有时为空 */
+  clean_script?: string | null;
+  /** 保留数据的脚本（flash_all_except_storage.bat），没有或不安全时为空 */
+  keep_data_script?: string | null;
+}
+
+/** 官方包逐条执行脚本时的进度。 */
+export interface FlashStepEvent {
+  index: number;
+  total: number;
+  label: string;
 }

@@ -11,6 +11,7 @@ use crate::logger::Logger;
 use crate::rootflash::flash_root_image;
 use crate::backup::{self, BackupInfo};
 use crate::config::find_rom_root;
+use crate::official;
 use crate::rompkg::{self, PackageInfo};
 use tauri::Emitter;
 
@@ -50,6 +51,9 @@ pub async fn extract_package_cmd(
 #[command]
 pub async fn use_rom_dir_cmd(dir: String) -> Result<String, String> {
     let picked = PathBuf::from(&dir);
+    if official::is_official_root(&picked) {
+        return activate_dir(picked);
+    }
     let root = find_rom_root(Some(&picked))
         .or_else(|| {
             // 选到了 ROM 的上一层目录：只有一个子目录是 ROM 时自动进入
@@ -60,11 +64,16 @@ pub async fn use_rom_dir_cmd(dir: String) -> Result<String, String> {
                 .collect();
             (found.len() == 1).then(|| found[0].clone())
         })
+        .or_else(|| official::find_official_root(&picked))
         .ok_or_else(|| format!(
-            "这个文件夹里没有找到刷机配置（{}）。\n请选择 ROM 解压后的根目录，或直接选择 .zip 刷机包。",
+            "这个文件夹里没有找到刷机配置。\n请选择 Harusora 刷机包解压后的根目录（含 {}），或小米官方线刷包的目录（含 flash_all.bat 和 images）。",
             crate::config::DEFAULT_PROFILE_REL.replace('/', "\\")
         ))?;
-    // 先完整加载一次配置，有错误立即提示，不切换当前刷机包
+    activate_dir(root)
+}
+
+/// 先完整加载一次配置，有错误立即提示，不切换当前刷机包。
+fn activate_dir(root: PathBuf) -> Result<String, String> {
     get_active_profile(Some(&root.display().to_string()), None)?;
     let root = root.canonicalize().unwrap_or(root);
     rompkg::set_active_root(Some(root.clone()));
@@ -89,9 +98,31 @@ pub struct DeviceSummary {
     pub product: Option<String>,
 }
 
+fn startup_official_root() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd);
+    }
+    if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)) {
+        candidates.push(dir);
+    }
+    candidates.into_iter().find(|d| official::is_official_root(d))
+}
+
 fn get_active_profile(rom_root: Option<&str>, profile_path: Option<&str>) -> Result<FlashProfile, String> {
     let active = if rom_root.is_none() && profile_path.is_none() { rompkg::active_root() } else { None };
     let r_path = rom_root.map(Path::new).or(active.as_deref());
+    if profile_path.is_none() {
+        // 小米官方线刷包：选中的目录，或程序放在官方包目录里运行
+        let official_root = match r_path {
+            Some(r) => official::is_official_root(r).then(|| r.to_path_buf()),
+            None if find_rom_root(None).is_none() => startup_official_root(),
+            None => None,
+        };
+        if let Some(root) = official_root {
+            return official::load_official(&root).map_err(|e| format!("{:#}", e));
+        }
+    }
     let p_path = profile_path.map(Path::new);
     let (root, resolved_p) = resolve_profile_path(r_path, p_path).map_err(|e| e.to_string())?;
     load_profile(&root, &resolved_p).map_err(|e| e.to_string())
@@ -219,8 +250,13 @@ pub async fn run_flash_cmd(
     let mut session = DeviceSession::new(profile.fastboot(), profile.adb(), logger, false);
     session.serial = chosen_serial;
 
+    let reboot_after = profile.reboot_after_success;
     tokio::task::spawn_blocking(move || {
-        execute_flash_pipeline(&profile, session, preserve_data, Some(&app))
+        if profile.is_official() {
+            official::run_official(&profile, session, preserve_data, reboot_after, Some(&app))
+        } else {
+            execute_flash_pipeline(&profile, session, preserve_data, Some(&app))
+        }
     })
     .await
     .map_err(|e| e.to_string())?

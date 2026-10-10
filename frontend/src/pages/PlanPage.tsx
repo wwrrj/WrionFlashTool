@@ -21,6 +21,10 @@ export function PlanPage({ profile, options, onChange, onBack, onNext, onOpenExp
   const hasRoot = profile.enable_root_menu;
   const hasExpand = Boolean(profile.expansion?.enabled);
   const hasAdvanced = hasId || hasRoot || hasExpand;
+  // 官方包只有包里带了对应脚本才能选
+  const official = profile.kind === 'official' ? profile.official : null;
+  const canClean = !official || Boolean(official.clean_script);
+  const canUpdate = !official || Boolean(official.keep_data_script);
 
   const missingFile = (options.idSource === 'external' && !options.idPath.trim())
     ? '请选择外部 ID 补丁文件'
@@ -35,30 +39,32 @@ export function PlanPage({ profile, options, onChange, onBack, onNext, onOpenExp
   return (
     <PageFrame stepNo={3}
       title="选择刷入方式"
-      description="不确定的话，选“完整线刷”最稳妥；只想升级系统并保留数据，选“保留数据更新”。"
+      description={official
+        ? '官方线刷包：完整线刷使用 flash_all.bat，保留数据更新使用 flash_all_except_storage.bat。'
+        : '不确定的话，选“完整线刷”最稳妥；只想升级系统并保留数据，选“保留数据更新”。'}
       secondary={<button className="btn" onClick={onBack}><ArrowLeft size={15} /> 上一步</button>}
       hint={hint}
       primary={<button className="btn primary large" disabled={Boolean(hint)} onClick={onNext}>下一步：确认 <ArrowRight size={17} /></button>}
     >
       <div className="choice-grid">
-        <button className={`choice ${options.mode === 'clean' ? 'selected' : ''}`} onClick={() => onChange({ mode: 'clean' })}>
+        <button className={`choice ${options.mode === 'clean' ? 'selected' : ''}`} disabled={!canClean} onClick={() => onChange({ mode: 'clean' })}>
           <span className="choice-icon danger"><Zap size={22} /></span>
           <strong>完整线刷</strong>
           <p>全新安装系统，适合第一次刷入或想彻底重装。</p>
-          <span className="tag danger">会清空手机上的所有数据</span>
+          <span className="tag danger">{canClean ? '会清空手机上的所有数据' : '这个刷机包不支持'}</span>
         </button>
-        <button className={`choice ${options.mode === 'update' ? 'selected' : ''}`} onClick={() => onChange({ mode: 'update' })}>
+        <button className={`choice ${options.mode === 'update' ? 'selected' : ''}`} disabled={!canUpdate} onClick={() => onChange({ mode: 'update' })}>
           <span className="choice-icon safe"><RotateCw size={22} /></span>
           <strong>保留数据更新</strong>
           <p>只覆盖系统分区，保留照片、应用和文件。</p>
-          <span className="tag safe">保留用户数据</span>
+          <span className={`tag ${canUpdate ? 'safe' : 'danger'}`}>{canUpdate ? '保留用户数据' : '这个刷机包不支持'}</span>
         </button>
       </div>
 
       {hasAdvanced && (
         <section className="advanced">
           <button className="advanced-toggle" onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced}>
-            <ChevronDown size={16} className={advanced ? 'open' : ''} /> 高级选项 <small>ID 补丁、Root、扩容 — 大多数用户不需要</small>
+            <ChevronDown size={16} className={advanced ? 'open' : ''} /> 高级选项 <small>{[hasId && 'ID 补丁', hasRoot && 'Root', hasExpand && '扩容'].filter(Boolean).join('、')} — 大多数用户不需要</small>
           </button>
           {advanced && <div className="advanced-body">
             {hasId && (

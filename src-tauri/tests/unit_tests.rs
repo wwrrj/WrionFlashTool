@@ -304,3 +304,111 @@ fn test_gpt_backup_rejects_mismatch() {
     write_rom_zip(&rom, "");
     assert!(!inspect_backup(&rom, &cfg).supported);
 }
+
+fn official_fixture(device: &str, name: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/official").join(device).join(name);
+    String::from_utf8_lossy(&std::fs::read(path).unwrap()).into_owned()
+}
+
+#[test]
+fn test_official_flash_all_parses_to_whitelisted_ops() {
+    use harusora_flash_tool_lib::official::{flatten, parse_bat, touches_user_data, ScriptOp};
+    let root = std::path::Path::new("R:/pkg");
+    let ops = parse_bat(&official_fixture("shennong", "flash_all.bat"), root).unwrap();
+
+    assert_eq!(ops[0], ScriptOp::CheckProduct(vec!["shennong".into(), "shennongpro".into()]));
+    assert_eq!(ops.iter().filter(|op| matches!(op, ScriptOp::CheckProduct(_))).count(), 1);
+    assert_eq!(ops.iter().filter(|op| **op == ScriptOp::CheckAnti).count(), 1);
+    // crc 条件块里刷入两个 crc 列表
+    let crc = ops.iter().find_map(|op| match op {
+        ScriptOp::IfVar { name, expect, body } if name == "crc" => Some((expect.clone(), body.len())),
+        _ => None,
+    });
+    assert_eq!(crc, Some(("1".to_string(), 2)));
+    assert!(ops.iter().any(|op| matches!(op, ScriptOp::IfVar { name, expect, .. } if name == "partition-type:opcust" && expect == "raw")));
+    assert!(ops.contains(&ScriptOp::Flash { partition: "super".into(), file: root.join("images/super.img") }));
+    assert!(ops.contains(&ScriptOp::Flash { partition: "misc".into(), file: root.join("images/misc.img") }));
+    assert_eq!(&ops[ops.len() - 2..], &[ScriptOp::SetActive("a".into()), ScriptOp::Reboot]);
+    assert!(touches_user_data(&ops));
+    assert!(flatten(&ops).len() > 50);
+
+    let houji = parse_bat(&official_fixture("houji", "flash_all.bat"), root).unwrap();
+    assert_eq!(houji[0], ScriptOp::CheckProduct(vec!["houji".into()]));
+}
+
+#[test]
+fn test_official_keep_data_script_and_lock_refusal() {
+    use harusora_flash_tool_lib::official::{parse_bat, touches_user_data};
+    let root = std::path::Path::new("R:/pkg");
+    for device in ["shennong", "houji"] {
+        let keep = parse_bat(&official_fixture(device, "flash_all_except_storage.bat"), root).unwrap();
+        assert!(!touches_user_data(&keep), "{device} except_storage 不应改写用户数据");
+        let lock = parse_bat(&official_fixture(device, "flash_all_lock.bat"), root).unwrap_err();
+        assert!(format!("{lock:#}").contains("锁定 Bootloader"), "{lock:#}");
+    }
+}
+
+#[test]
+fn test_official_parser_rejects_unknown_and_unsafe_lines() {
+    use harusora_flash_tool_lib::official::parse_bat;
+    let root = std::path::Path::new("R:/pkg");
+    let base = "fastboot %* getvar product 2>&1 | findstr /r /c:\"^product: *alpha\" || exit /B 1\n";
+    let cases = [
+        "del /q C:\\Windows\\foo",
+        "fastboot %* flash boot_ab %~dp0..\\evil.img || exit 1",
+        "fastboot %* flash boot_ab C:\\evil.img || exit 1",
+        "fastboot %* flashing lock",
+        "fastboot %* oem unlock-go",
+        "fastboot %* reboot bootloader",
+        "fastboot -w",
+    ];
+    for line in cases {
+        assert!(parse_bat(&format!("{base}{line}\n"), root).is_err(), "应拒绝：{line}");
+    }
+    // 没有机型校验的脚本不执行
+    assert!(parse_bat("fastboot %* reboot\n", root).is_err());
+    assert!(parse_bat(&format!("{base}fastboot %* reboot\n"), root).is_ok());
+}
+
+#[test]
+fn test_official_package_loads_as_profile() {
+    use harusora_flash_tool_lib::official::{flatten, load_official, parse_bat, ScriptOp};
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir(root.join("images")).unwrap();
+    for name in ["flash_all.bat", "flash_all_except_storage.bat", "misc.txt"] {
+        std::fs::write(root.join(name), official_fixture("shennong", name)).unwrap();
+    }
+    std::fs::write(root.join("images/anti_version.txt"), "1").unwrap();
+    // 只创建脚本引用到的文件（内容不重要）
+    let ops = parse_bat(&official_fixture("shennong", "flash_all.bat"), root).unwrap();
+    for op in flatten(&ops) {
+        if let ScriptOp::Flash { file, .. } = op {
+            std::fs::write(file, b"x").unwrap();
+        }
+    }
+
+    let profile = load_official(root).unwrap();
+    assert!(profile.is_official());
+    assert_eq!(profile.codenames, vec!["shennong", "shennongpro"]);
+    assert!(profile.package_name.contains("OS2.0.221.0.VNBCNXM"));
+    assert_eq!(profile.build_date, "2025-09-28");
+    assert_eq!(profile.minimum_super_bytes, 0);
+    let info = profile.official.clone().unwrap();
+    assert_eq!(info.clean_script.as_deref(), Some("flash_all.bat"));
+    assert_eq!(info.keep_data_script.as_deref(), Some("flash_all_except_storage.bat"));
+    assert!(profile.fastboot().is_file(), "内置 fastboot 应已释放：{:?}", profile.fastboot());
+
+    // 缺文件时拒绝加载
+    std::fs::remove_file(root.join("images/super.img")).unwrap();
+    assert!(format!("{:#}", load_official(root).unwrap_err()).contains("super.img"));
+}
+
+#[test]
+fn test_embedded_platform_tools_are_complete() {
+    let dir = harusora_flash_tool_lib::platform_tools::tools_dir().unwrap();
+    // fastboot -w 需要同目录的 make_f2fs / mke2fs 生成 userdata 镜像
+    for name in ["fastboot.exe", "adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll", "make_f2fs.exe", "mke2fs.exe", "mke2fs.conf"] {
+        assert!(dir.join(name).is_file(), "缺少 {name}：{dir:?}");
+    }
+}
