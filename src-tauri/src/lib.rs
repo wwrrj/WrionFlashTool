@@ -12,6 +12,7 @@ pub mod rompkg;
 pub mod backup;
 pub mod official;
 pub mod platform_tools;
+pub mod usb_driver;
 pub mod commands;
 
 pub fn run() {
@@ -24,6 +25,8 @@ pub fn run() {
             commands::cancel_extract_cmd,
             commands::dest_free_space_cmd,
             commands::use_rom_dir_cmd,
+            commands::usb_driver_status_cmd,
+            commands::install_usb_driver_cmd,
             commands::inspect_backup_cmd,
             commands::get_profile,
             commands::scan_devices,

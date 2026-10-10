@@ -1,7 +1,8 @@
-import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Loader2, RefreshCw, Smartphone, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, ChevronDown, Loader2, RefreshCw, ShieldCheck, Smartphone, TriangleAlert, Usb } from 'lucide-react';
 import { PageFrame } from '../components/PageFrame';
 import { modeLabel, shortSerial } from '../lib/format';
 import type { useDevices } from '../hooks/useDevices';
+import { useUsbDriver } from '../hooks/useUsbDriver';
 import type { FlashProfile } from '../types';
 
 interface DevicePageProps {
@@ -17,6 +18,9 @@ interface DevicePageProps {
 
 export function DevicePage({ devices, profile, checking, checkError, onBack, onCheck }: DevicePageProps) {
   const { devices: list, current, scanning, scanError } = devices;
+  const driver = useUsbDriver(list.length === 0 && !checking);
+  const missingDriver = (driver.status?.missing_devices.length ?? 0) > 0;
+  const installDriver = () => void driver.install().then(() => devices.scan());
   const matches = (product?: string | null) => !product || profile.codenames.includes(product);
   const mismatch = current ? !matches(current.product) : false;
   const ready = Boolean(current) && !mismatch;
@@ -47,6 +51,20 @@ export function DevicePage({ devices, profile, checking, checkError, onBack, onC
           <div className="phone-pulse"><Smartphone size={34} /></div>
           <strong>{scanning ? '正在查找手机…' : '还没有找到手机'}</strong>
           <p className="muted">连接后会自动识别，不需要手动刷新。</p>
+          {missingDriver && !driver.result && (
+            <div className="driver-alert">
+              <TriangleAlert size={18} />
+              <div>
+                <strong>检测到手机，但电脑缺少 USB 驱动</strong>
+                <span>安装后重新插拔数据线即可识别。安装时 Windows 会弹出授权窗口，请点“是”。</span>
+              </div>
+              <button className="btn primary" onClick={installDriver} disabled={driver.installing}>
+                {driver.installing ? <><Loader2 size={15} className="spin" /> 正在安装…</> : <><Usb size={15} /> 一键安装驱动</>}
+              </button>
+            </div>
+          )}
+          {driver.result && <div className="callout info"><CheckCircle2 size={16} /><span>{driver.result.message}{driver.result.reboot_required ? '。' : '，请重新插拔数据线。'}</span></div>}
+          {driver.error && <div className="callout danger"><TriangleAlert size={16} /><span style={{ whiteSpace: 'pre-wrap' }}>{driver.error}</span></div>}
           <ol className="steps">
             <li>用<b>原装或质量好的数据线</b>连接手机和电脑（建议直接插机箱后面的 USB 口）</li>
             <li>手机保持亮屏开机，或进入 Fastboot 模式</li>
@@ -57,8 +75,17 @@ export function DevicePage({ devices, profile, checking, checkError, onBack, onC
             <ul>
               <li>小米手机进入 Fastboot：关机后，同时按住 <b>音量下 + 电源键</b>，看到 FASTBOOT 画面后松手</li>
               <li>换一根数据线或换一个 USB 口；不要使用 USB 扩展坞</li>
-              <li>电脑需要安装 Android 手机的 USB 驱动</li>
             </ul>
+            <div className="driver-row">
+              <ShieldCheck size={16} />
+              <span>
+                <strong>Android USB 驱动</strong>
+                <small>{driver.status?.installed ? '这台电脑已安装，ADB 和 Fastboot 都能用' : '电脑识别手机需要它，支持各品牌手机的 ADB 与 Fastboot'}</small>
+              </span>
+              <button className="btn small" onClick={installDriver} disabled={driver.installing}>
+                {driver.installing ? <Loader2 size={13} className="spin" /> : null}{driver.status?.installed ? '重新安装' : '安装驱动'}
+              </button>
+            </div>
           </details>
           {scanError && <small className="bad">{scanError}</small>}
         </section>

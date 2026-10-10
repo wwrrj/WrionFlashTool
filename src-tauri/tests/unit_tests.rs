@@ -412,3 +412,19 @@ fn test_embedded_platform_tools_are_complete() {
         assert!(dir.join(name).is_file(), "缺少 {name}：{dir:?}");
     }
 }
+
+#[test]
+fn test_usb_driver_extracts_signed_package_intact() {
+    use harusora_flash_tool_lib::usb_driver::extract;
+    let inf = extract().unwrap();
+    let dir = inf.parent().unwrap();
+    for name in ["android_winusb.inf", "android_winusb.cat", "amd64/WdfCoInstaller01009.dll", "amd64/winusbcoinstaller2.dll"] {
+        assert!(dir.join(name).is_file(), "缺少 {name}");
+    }
+    // .cat 签名覆盖 .inf 原始字节：必须保留 CRLF，且声明了按接口类型匹配的 ADB / Fastboot
+    let text = std::fs::read(&inf).unwrap();
+    assert!(text.windows(2).any(|w| w == b"\r\n"));
+    let text = String::from_utf8_lossy(&text);
+    assert!(text.contains(r"USB\Class_FF&SubClass_42&Prot_01"));
+    assert!(text.contains(r"USB\Class_FF&SubClass_42&Prot_03"));
+}

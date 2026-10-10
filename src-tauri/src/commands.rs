@@ -12,6 +12,7 @@ use crate::rootflash::flash_root_image;
 use crate::backup::{self, BackupInfo};
 use crate::config::find_rom_root;
 use crate::official;
+use crate::usb_driver;
 use crate::rompkg::{self, PackageInfo};
 use tauri::Emitter;
 
@@ -78,6 +79,21 @@ fn activate_dir(root: PathBuf) -> Result<String, String> {
     let root = root.canonicalize().unwrap_or(root);
     rompkg::set_active_root(Some(root.clone()));
     Ok(root.display().to_string())
+}
+
+/// Android USB 驱动是否已安装，以及是否有手机因缺少驱动无法识别。
+#[command]
+pub async fn usb_driver_status_cmd() -> Result<usb_driver::DriverStatus, String> {
+    tokio::task::spawn_blocking(usb_driver::status).await.map_err(|e| e.to_string())
+}
+
+/// 安装内置的 Android USB 驱动（会弹出管理员授权）。
+#[command]
+pub async fn install_usb_driver_cmd() -> Result<usb_driver::InstallResult, String> {
+    tokio::task::spawn_blocking(usb_driver::install)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[command]

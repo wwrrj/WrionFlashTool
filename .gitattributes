@@ -1,0 +1,2 @@
+# 驱动目录签名(.cat)覆盖 .inf 的原始字节，内置工具也必须原样保存：禁止换行符转换
+src-tauri/resources/** -text

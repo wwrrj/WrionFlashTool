@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type {
-  BackupInfo, DeviceSummary, EnvReport, ExpandPlan, ExpandProgressEvent, FlashProfile, PackageInfo,
+  BackupInfo, DeviceSummary, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, FlashProfile, PackageInfo,
 } from '../types';
 
 export const isTauri = () =>
@@ -75,6 +75,8 @@ export const api = {
   scanDevices: async (): Promise<DeviceSummary[]> => {
     if (isTauri()) return invoke('scan_devices', {});
     await wait(300);
+    // 预览时地址栏带 ?devices=none 可模拟没有连接手机
+    if (new URLSearchParams(window.location.search).get('devices') === 'none') return [];
     return [{ serial: 'PREVIEW0123456789', mode: 'fastboot', product: 'shennong' }];
   },
 
@@ -100,6 +102,17 @@ export const api = {
     await wait(300);
     previewReady = true;
     return dir;
+  },
+  usbDriverStatus: async (): Promise<UsbDriverStatus> => {
+    if (isTauri()) return invoke('usb_driver_status_cmd');
+    // 预览时地址栏带 ?driver=missing 可模拟缺少驱动
+    const missing = new URLSearchParams(window.location.search).get('driver') === 'missing';
+    return { installed: !missing, missing_devices: missing ? ['Android'] : [] };
+  },
+  installUsbDriver: async (): Promise<UsbDriverInstallResult> => {
+    if (isTauri()) return invoke('install_usb_driver_cmd');
+    await wait(800);
+    return { reboot_required: false, message: 'USB 驱动已安装' };
   },
   cancelExtract: (): Promise<void> => (isTauri() ? invoke('cancel_extract_cmd') : Promise.resolve()),
   destFreeSpace: (dest: string): Promise<number | null> =>

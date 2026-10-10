@@ -181,3 +181,15 @@ export interface FlashStepEvent {
   total: number;
   label: string;
 }
+
+export interface UsbDriverStatus {
+  /** 系统里已有内置的 Android USB 驱动 */
+  installed: boolean;
+  /** 已连接但缺少驱动的 Android 接口 */
+  missing_devices: string[];
+}
+
+export interface UsbDriverInstallResult {
+  reboot_required: boolean;
+  message: string;
+}

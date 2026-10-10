@@ -43,6 +43,10 @@ ROM 根目录/
 
 所有刷机包（Harusora 刷机包和官方线刷包）都使用编译进 exe 的完整 platform-tools 36.0.1（`src-tauri/resources/platform-tools`：fastboot、adb 及其 DLL，以及 `fastboot -w` 生成 userdata 所需的 make_f2fs / mke2fs），首次使用时释放到 `%LOCALAPPDATA%\HarusoraFlashTool\platform-tools-<版本>`，旧版本目录会自动清理。exe 旁边若有完整的 `tools\platform-tools`，优先使用它；刷机包自带的 platform-tools 不再使用。
 
+### 内置 USB 驱动
+
+工具内置按接口类型匹配的 Android WinUSB 驱动（`src-tauri/resources/usb-driver`，`USB\Class_FF&SubClass_42&Prot_01/03`，覆盖各品牌手机的 ADB 与 Fastboot）。在“连接手机”页找不到手机时，工具会在后台检测是否有缺少驱动的 Android 接口，并提示“一键安装驱动”；安装通过系统自带的 `pnputil /add-driver ... /install` 完成，需要在 UAC 窗口中授权。`.inf` 受 `.cat` 签名保护，`.gitattributes` 禁止对 resources 做换行符转换。
+
 ## 支持的操作
 
 - **完整线刷**：写入固件、启动链、动态分区和数据相关操作，并要求输入确认词。
