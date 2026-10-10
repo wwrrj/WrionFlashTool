@@ -249,14 +249,19 @@ pub fn gather_environment(
         .getvar("is-userspace", true)?
         .map_or(false, |v| v.to_lowercase() == "yes");
     let anti = session.getvar("anti", true)?;
+    let anti_package = read_package_anti(profile)?;
+    let anti_device = anti.as_deref().and_then(|a| a.trim().parse::<u32>().ok()).unwrap_or(0);
 
     Ok(EnvReport {
         serial,
         product,
         super_bytes,
+        super_required: profile.minimum_super_bytes,
         super_ready: super_bytes >= profile.minimum_super_bytes,
         is_userspace,
         anti,
+        anti_package,
+        anti_ok: anti_package.map_or(true, |pkg| anti_device <= pkg),
     })
 }
 

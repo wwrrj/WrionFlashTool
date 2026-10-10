@@ -45,9 +45,15 @@ pub struct EnvReport {
     pub serial: String,
     pub product: String,
     pub super_bytes: u64,
+    /// 刷机包要求的最小 super 容量（[requirements].minimum_super_bytes）。
+    pub super_required: u64,
     pub super_ready: bool,
     pub is_userspace: bool,
     pub anti: Option<String>,
+    /// 刷机包的防回滚版本；包内没有 anti 文件时为空。
+    pub anti_package: Option<u32>,
+    /// 设备防回滚版本不高于刷机包（可以刷入）。
+    pub anti_ok: bool,
 }
 
 pub fn parse_size(value: &str) -> Result<u64> {

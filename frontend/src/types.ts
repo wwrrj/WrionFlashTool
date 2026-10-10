@@ -28,6 +28,7 @@ export interface FlashProfile {
   rom_root: string;
   profile_path: string;
   codenames: string[];
+  package_name: string;
   display_name: string;
   notes: string[];
   author: string;
@@ -73,9 +74,12 @@ export interface EnvReport {
   serial: string;
   product: string;
   super_bytes: number;
+  super_required: number;
   super_ready: boolean;
   is_userspace: boolean;
-  anti?: string;
+  anti?: string | null;
+  anti_package?: number | null;
+  anti_ok: boolean;
 }
 
 export interface PartInfo {
@@ -115,4 +119,46 @@ export interface PartitionProgressEvent {
   done: number;
   total: number;
   percent: number;
+}
+
+export interface PackageInfo {
+  zip_path: string;
+  package_name: string;
+  display_name: string;
+  codenames: string[];
+  total_bytes: number;
+  file_count: number;
+  default_dest: string;
+  already_extracted: boolean;
+  free_bytes?: number | null;
+}
+
+export interface ExtractProgressEvent {
+  done_bytes: number;
+  total_bytes: number;
+  file_index: number;
+  file_count: number;
+  current: string;
+}
+
+export interface BackupInfo {
+  path: string;
+  file_name: string;
+  kind: 'zip' | 'dir';
+  device?: string | null;
+  disk?: string | null;
+  created?: string | null;
+  super_old_bytes?: number | null;
+  super_new_bytes?: number | null;
+  supported: boolean;
+  problems: string[];
+  warnings: string[];
+}
+
+export interface ExpandProgressEvent {
+  phase: 'plan' | 'apply' | 'restore';
+  steps: string[];
+  /** 当前步骤序号（从 0 开始）；等于 steps.length 表示全部完成。 */
+  current: number;
+  detail?: string | null;
 }

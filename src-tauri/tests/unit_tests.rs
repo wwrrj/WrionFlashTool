@@ -171,3 +171,136 @@ fn test_build_physical_super_sparse_from_raw_prefix() {
     assert_eq!(restored.len(), 16384);
     assert_eq!(&restored[4096..4100], b"gDla");
 }
+
+fn write_rom_zip(path: &std::path::Path, prefix: &str) {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(path).unwrap());
+    let opts = zip::write::SimpleFileOptions::default();
+    zip.start_file(format!("{prefix}META-INF/com/android/flash_profile.toml"), opts).unwrap();
+    zip.write_all(b"[package]\nname = \"Test ROM\"\n[device]\ndisplay_name = \"Test Phone\"\ncodenames = [\"alpha\", \"beta\"]\n").unwrap();
+    zip.add_directory(format!("{prefix}images/"), opts).unwrap();
+    zip.start_file(format!("{prefix}images/boot.img"), opts).unwrap();
+    zip.write_all(&[7u8; 300_000]).unwrap();
+    zip.finish().unwrap();
+}
+
+#[test]
+fn test_rom_zip_inspect_and_extract() {
+    use harusora_flash_tool_lib::rompkg::{default_dest, extract_package, inspect_package};
+    let dir = tempdir().unwrap();
+    for prefix in ["", "Wrapped/"] {
+        let zip_path = dir.path().join(format!("rom{}.zip", prefix.len()));
+        write_rom_zip(&zip_path, prefix);
+
+        let info = inspect_package(&zip_path).unwrap();
+        assert_eq!(info.package_name, "Test ROM");
+        assert_eq!(info.codenames, vec!["alpha", "beta"]);
+        assert_eq!(info.file_count, 2);
+        assert!(!info.already_extracted);
+
+        let dest = default_dest(&zip_path);
+        let root = extract_package(&zip_path, &dest, &mut |_| {}).unwrap();
+        assert_eq!(std::fs::metadata(root.join("images/boot.img")).unwrap().len(), 300_000);
+        assert!(root.join("META-INF/com/android/flash_profile.toml").is_file());
+        assert!(inspect_package(&zip_path).unwrap().already_extracted);
+        // 已完整解压时直接复用
+        extract_package(&zip_path, &dest, &mut |_| panic!("不应重新解压")).unwrap();
+    }
+}
+
+#[test]
+fn test_rom_zip_rejects_foreign_dir_and_non_rom() {
+    use harusora_flash_tool_lib::rompkg::{extract_package, inspect_package};
+    let dir = tempdir().unwrap();
+    let zip_path = dir.path().join("rom.zip");
+    write_rom_zip(&zip_path, "");
+
+    let foreign = dir.path().join("foreign");
+    std::fs::create_dir(&foreign).unwrap();
+    std::fs::write(foreign.join("keep.txt"), "x").unwrap();
+    assert!(extract_package(&zip_path, &foreign, &mut |_| {}).is_err());
+    assert!(foreign.join("keep.txt").is_file());
+
+    let other = dir.path().join("other.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&other).unwrap());
+    zip.start_file("readme.txt", zip::write::SimpleFileOptions::default()).unwrap();
+    zip.finish().unwrap();
+    assert!(inspect_package(&other).is_err());
+}
+
+fn test_expansion_cfg(backup_dir: &std::path::Path) -> harusora_flash_tool_lib::config::ExpansionConfig {
+    harusora_flash_tool_lib::config::ExpansionConfig {
+        enabled: true,
+        codenames: vec!["alpha".into()],
+        target_bytes: 1 << 30,
+        disk: "/dev/block/sda".into(),
+        super_part: 32,
+        userdata_part: 33,
+        backup_dir: backup_dir.to_path_buf(),
+        sgdisk_dir: backup_dir.to_path_buf(),
+        remote_sgdisk_dir: "/tmp/sg".into(),
+        confirm_word: "EXPAND".into(),
+        restore_confirm_word: "RESTORE".into(),
+    }
+}
+
+const TEST_PLAN: &str = "disk=/dev/block/sda\ndevice=alpha\nsector_bytes=4096\nsuper_old=100-199\nsuper_new=100-299\nuserdata_old=200-999\nuserdata_new=300-999\n";
+
+fn fake_gpt() -> Vec<u8> {
+    let mut gpt = vec![0u8; 4096 * 3];
+    gpt[4096..4104].copy_from_slice(b"EFI PART");
+    gpt
+}
+
+#[test]
+fn test_gpt_backup_zip_roundtrip_and_listing() {
+    use harusora_flash_tool_lib::backup::{inspect_backup, list_backups, read_backup, write_backup_zip};
+    let dir = tempdir().unwrap();
+    let cfg = test_expansion_cfg(dir.path());
+
+    let zip_path = dir.path().join("alpha-super-expand-20260101-120000.zip");
+    write_backup_zip(&zip_path, &fake_gpt(), TEST_PLAN).unwrap();
+    let info = inspect_backup(&zip_path, &cfg);
+    assert!(info.supported, "{:?}", info.problems);
+    assert_eq!(info.device.as_deref(), Some("alpha"));
+    assert_eq!(info.super_old_bytes, Some(100 * 4096));
+    assert_eq!(info.super_new_bytes, Some(200 * 4096));
+    assert_eq!(read_backup(&zip_path).unwrap().gpt, fake_gpt());
+
+    // 旧版目录备份也能识别
+    let legacy = dir.path().join("alpha-super-expand-old");
+    std::fs::create_dir(&legacy).unwrap();
+    std::fs::write(legacy.join("gpt-sda-before.bin"), fake_gpt()).unwrap();
+    std::fs::write(legacy.join("plan.txt"), TEST_PLAN).unwrap();
+    assert!(inspect_backup(&legacy, &cfg).supported);
+
+    let listed = list_backups(&cfg);
+    assert_eq!(listed.len(), 2);
+    assert!(listed.iter().all(|b| b.supported));
+
+    // 无效 GPT 不会写出备份
+    assert!(write_backup_zip(&dir.path().join("bad.zip"), &[0u8; 64], TEST_PLAN).is_err());
+    assert!(!dir.path().join("bad.zip").exists());
+}
+
+#[test]
+fn test_gpt_backup_rejects_mismatch() {
+    use harusora_flash_tool_lib::backup::{inspect_backup, write_backup_zip};
+    let dir = tempdir().unwrap();
+    let cfg = test_expansion_cfg(dir.path());
+
+    let other_device = dir.path().join("other.zip");
+    write_backup_zip(&other_device, &fake_gpt(), &TEST_PLAN.replace("device=alpha", "device=gamma")).unwrap();
+    let info = inspect_backup(&other_device, &cfg);
+    assert!(!info.supported);
+    assert!(info.problems.iter().any(|p| p.contains("gamma")));
+
+    let other_disk = dir.path().join("disk.zip");
+    write_backup_zip(&other_disk, &fake_gpt(), &TEST_PLAN.replace("/dev/block/sda", "/dev/block/sdb")).unwrap();
+    assert!(!inspect_backup(&other_disk, &cfg).supported);
+
+    // 普通 zip（ROM 包等）不是备份
+    let rom = dir.path().join("rom.zip");
+    write_rom_zip(&rom, "");
+    assert!(!inspect_backup(&rom, &cfg).supported);
+}

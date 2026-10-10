@@ -8,12 +8,21 @@ pub mod flash;
 pub mod rootflash;
 pub mod idflash;
 pub mod expand;
+pub mod rompkg;
+pub mod backup;
 pub mod commands;
 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            commands::inspect_package_cmd,
+            commands::extract_package_cmd,
+            commands::cancel_extract_cmd,
+            commands::dest_free_space_cmd,
+            commands::use_rom_dir_cmd,
+            commands::inspect_backup_cmd,
             commands::get_profile,
             commands::scan_devices,
             commands::run_diagnostics_cmd,

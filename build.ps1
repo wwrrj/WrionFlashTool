@@ -39,4 +39,4 @@ Copy-Item -Force $SrcExe (Join-Path $PSScriptRoot "HarusoraFlashTool.exe")
 
 $size = (Get-Item $DistExe).Length
 Write-Host ("OK: {0} ({1:N1} MB)" -f $DistExe, ($size / 1MB)) -ForegroundColor Green
-Write-Host "Run: place HarusoraFlashTool.exe in the ROM root and launch it!"
+Write-Host "Run: launch HarusoraFlashTool.exe and pick a ROM .zip (or place it in an extracted ROM root)."

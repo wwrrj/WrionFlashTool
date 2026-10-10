@@ -38,6 +38,9 @@ pub struct FlashProfile {
     pub profile_path: PathBuf,
 
     pub codenames: Vec<String>,
+    /// [package].name，刷机包的完整名称；未填写时为空。
+    #[serde(default)]
+    pub package_name: String,
     pub display_name: String,
     pub notes: Vec<String>,
     pub author: String,
@@ -255,6 +258,7 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
     let options = root_table.get("options").and_then(|v| v.as_table());
     let expansion = root_table.get("expansion").and_then(|v| v.as_table());
 
+    let package_name = package.get("name").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
     let author = package.get("author").and_then(|v| v.as_str()).unwrap_or("").trim();
     if author.is_empty() {
         bail!("[package].author 不能为空");
@@ -564,6 +568,7 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
         rom_root: rom_root.to_path_buf(),
         profile_path: profile_path.to_path_buf(),
         codenames,
+        package_name,
         display_name,
         notes,
         author: author.to_string(),

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::backup::{self, BackupInfo};
 use crate::config::{ExpansionConfig, FlashProfile};
 use crate::device::run_process;
 use crate::logger::Logger;
@@ -18,6 +19,31 @@ pub struct PartInfo {
     pub last: u64,
     pub name: String,
     pub lines: Vec<String>,
+}
+
+/// 读取扩容方案的步骤。
+pub const PLAN_STEPS: &[&str] = &["连接手机", "刷入包内 Recovery", "等待进入 Recovery", "准备分区工具", "读取分区表"];
+/// 执行扩容的步骤（会重新进入 Recovery 并再次读取分区表）。
+pub const APPLY_STEPS: &[&str] = &[
+    "连接手机", "刷入包内 Recovery", "等待进入 Recovery", "准备分区工具", "读取分区表",
+    "备份分区表", "清除数据", "重写分区表", "格式化 userdata",
+];
+/// 恢复官方分区表的步骤。
+pub const RESTORE_STEPS: &[&str] = &[
+    "检查备份", "连接手机", "刷入包内 Recovery", "等待进入 Recovery", "准备分区工具",
+    "写入官方分区表", "核对分区范围", "清除数据",
+];
+
+/// 推送给前端的 `expand_progress` 事件。
+#[derive(Debug, Clone, Serialize)]
+pub struct ExpandProgress {
+    /// "plan" | "apply" | "restore"
+    pub phase: &'static str,
+    pub steps: &'static [&'static str],
+    /// 当前步骤序号（从 0 开始）；等于 steps.len() 表示全部完成。
+    pub current: usize,
+    /// 当前步骤的补充说明，例如等待时长。
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +72,8 @@ pub struct ExpandSession {
     pub sgdisk_cmd: String,
     pub adb_serial: Option<String>,
     pub fastboot_serial: Option<String>,
+    phase: Option<(&'static str, &'static [&'static str])>,
+    current: std::cell::Cell<usize>,
 }
 
 impl ExpandSession {
@@ -68,7 +96,44 @@ impl ExpandSession {
             sgdisk_cmd: "sgdisk".to_string(),
             adb_serial: None,
             fastboot_serial: None,
+            phase: None,
+            current: std::cell::Cell::new(0),
         })
+    }
+
+    /// 开始一个带进度的阶段，之后用 [`mark`](Self::mark) 推进。
+    pub fn begin(&mut self, phase: &'static str, steps: &'static [&'static str]) {
+        self.phase = Some((phase, steps));
+        self.current.set(0);
+        self.emit_progress(None);
+    }
+
+    /// 进入名为 `step` 的步骤；不属于当前阶段的步骤会被忽略。
+    fn mark(&self, step: &str) {
+        let Some((_, steps)) = self.phase else { return };
+        if let Some(index) = steps.iter().position(|s| *s == step) {
+            self.current.set(index);
+            self.emit_progress(None);
+        }
+    }
+
+    /// 更新当前步骤的补充说明（不改变步骤）。
+    fn detail(&self, text: String) {
+        self.emit_progress(Some(text));
+    }
+
+    /// 标记当前阶段全部完成。
+    pub fn finish(&self) {
+        if let Some((_, steps)) = self.phase {
+            self.current.set(steps.len());
+            self.emit_progress(None);
+        }
+    }
+
+    fn emit_progress(&self, detail: Option<String>) {
+        if let Some((phase, steps)) = self.phase {
+            self.logger.emit("expand_progress", ExpandProgress { phase, steps, current: self.current.get(), detail });
+        }
     }
 
     pub fn adb_run(&self, args: &[&str], allow_fail: bool) -> Result<String> {
@@ -147,6 +212,7 @@ impl ExpandSession {
             if !self.fastboot_devices()?.is_empty() {
                 return Ok(());
             }
+            self.detail(format!("等待手机进入 Fastboot… 已等待 {} 秒", start.elapsed().as_secs()));
             std::thread::sleep(Duration::from_secs(1));
         }
         bail!("等待设备进入 fastboot 超时")
@@ -158,6 +224,7 @@ impl ExpandSession {
             if self.adb_transport_state() == "recovery" {
                 return Ok(());
             }
+            self.detail(format!("等待手机进入 Recovery… 已等待 {} 秒", start.elapsed().as_secs()));
             std::thread::sleep(Duration::from_secs(1));
         }
         bail!("等待包内 Recovery ADB 超时")
@@ -189,10 +256,12 @@ impl ExpandSession {
         self.logger
             .write("包内 Recovery 已刷入，正在重启到 Recovery");
         self.fb_run(&["reboot", "recovery"], false)?;
+        self.mark("等待进入 Recovery");
         self.wait_for_recovery()
     }
 
     pub fn ensure_recovery(&mut self) -> Result<()> {
+        self.mark("连接手机");
         let state = self.adb_transport_state();
         if state == "recovery" {
             self.logger
@@ -218,6 +287,7 @@ impl ExpandSession {
             std::thread::sleep(Duration::from_secs(2));
             self.wait_for_fastboot()?;
         }
+        self.mark("刷入包内 Recovery");
         self.flash_package_recovery()?;
 
         let dev_out = self
@@ -236,6 +306,7 @@ impl ExpandSession {
     }
 
     pub fn init_sgdisk(&mut self) -> Result<()> {
+        self.mark("准备分区工具");
         let probe = self.adb_shell("command -v sgdisk >/dev/null 2>&1 && sgdisk --version >/dev/null 2>&1 && echo SGDISK_OK", true).unwrap_or_default();
         if probe.contains("SGDISK_OK") {
             self.sgdisk_cmd = "sgdisk".to_string();
@@ -338,6 +409,7 @@ impl ExpandSession {
     }
 
     pub fn build_plan(&self) -> Result<ExpandPlan> {
+        self.mark("读取分区表");
         let print_text = self.adb_shell(
             &format!("{} --print {}", self.sgdisk_cmd, self.cfg.disk),
             false,
@@ -433,54 +505,60 @@ impl ExpandSession {
         })
     }
 
+    /// 导出 GPT 并打包成 zip 备份，校验通过后才返回；任何一步失败都会中止扩容。
     pub fn create_backup(&self, plan: &ExpandPlan) -> Result<PathBuf> {
-        let stamp = Local::now().format("%Y%m%d-%H%M%S");
+        let now = Local::now();
         let dev_name = if self.device.is_empty() {
             "unknown-device"
         } else {
             &self.device
         };
-        let out_dir = self
-            .cfg
-            .backup_dir
-            .join(format!("{}-super-expand-{}", dev_name, stamp));
-        std::fs::create_dir_all(&out_dir)?;
+        let zip_path = self.cfg.backup_dir.join(format!(
+            "{}-super-expand-{}.zip",
+            dev_name,
+            now.format("%Y%m%d-%H%M%S")
+        ));
 
-        self.logger
-            .write(&format!("正在备份 GPT 到：{:?}", out_dir));
+        let staging = self.profile.work_dir.join("gpt-backup");
+        std::fs::create_dir_all(&staging)?;
+        let local_gpt = staging.join(backup::GPT_FILE);
+        let _ = std::fs::remove_file(&local_gpt);
 
+        self.mark("备份分区表");
+        self.logger.write("正在导出 GPT 分区表…");
         let remote_gpt = "/tmp/harusora-gpt-before.bin";
-        let _ = self.adb_shell(
+        self.adb_shell(
             &format!(
                 "{cmd} --backup={remote} {disk}",
                 cmd = self.sgdisk_cmd,
                 remote = remote_gpt,
                 disk = plan.disk
             ),
-            true,
-        );
-        let _ = self.adb_run(
-            &[
-                "pull",
-                remote_gpt,
-                &out_dir.join("gpt-sda-before.bin").display().to_string(),
-            ],
-            true,
-        );
+            false,
+        )?;
+        self.adb_run(&["pull", remote_gpt, &local_gpt.display().to_string()], false)?;
         let _ = self.adb_shell(&format!("rm -f {}", remote_gpt), true);
+        let gpt = std::fs::read(&local_gpt)
+            .map_err(|e| anyhow!("读取导出的 GPT 失败：{}，已停止扩容", e))?;
 
-        // Save plan.txt
         let plan_content = format!(
-            "disk={}\ndevice={}\nsector_bytes={}\ntarget_bytes={}\ntarget_sectors={}\nsuper_old={}-{}\nsuper_new={}-{}\nuserdata_old={}-{}\nuserdata_new={}-{}\n",
-            plan.disk, dev_name, plan.sector_bytes, plan.target_bytes, plan.target_sectors,
+            "disk={}\ndevice={}\ncreated={}\nsector_bytes={}\ntarget_bytes={}\ntarget_sectors={}\nsuper_old={}-{}\nsuper_new={}-{}\nuserdata_old={}-{}\nuserdata_new={}-{}\n",
+            plan.disk, dev_name, now.format("%Y-%m-%d %H:%M"), plan.sector_bytes, plan.target_bytes, plan.target_sectors,
             plan.super_info.first, plan.super_info.last,
             plan.super_info.first, plan.new_super_last,
             plan.userdata_info.first, plan.userdata_info.last,
             plan.new_userdata_first, plan.userdata_info.last
         );
-        std::fs::write(out_dir.join("plan.txt"), plan_content)?;
+        backup::write_backup_zip(&zip_path, &gpt, &plan_content)?;
+        let _ = std::fs::remove_dir_all(&staging);
 
-        Ok(out_dir)
+        let check = backup::inspect_backup(&zip_path, &self.cfg);
+        if !check.supported {
+            bail!("GPT 备份校验失败，已停止扩容：{}", check.problems.join("；"));
+        }
+        self.logger
+            .write(&format!("GPT 备份已保存并校验通过：{:?}", zip_path));
+        Ok(zip_path)
     }
 
     pub fn apply_expand(&mut self, plan: &ExpandPlan) -> Result<PathBuf> {
@@ -496,6 +574,7 @@ impl ExpandSession {
 
         // Run every destructive operation as a separate command so the user
         // can identify the exact failing step in the log.
+        self.mark("清除数据");
         self.logger.write("步骤 1/9：卸载 /data");
         let _ = self.adb_shell("umount -l /data", true);
         self.logger.write("步骤 2/9：卸载 /metadata");
@@ -533,7 +612,9 @@ impl ExpandSession {
                 plan.disk,
             ),
             ];
+        self.mark("重写分区表");
         for (index, command) in commands.iter().enumerate() {
+            self.detail(format!("分区表操作 {}/{}", index + 1, commands.len()));
             self.logger
                 .write(&format!("步骤 {}/9：执行 GPT 操作 {}", index + 5, command));
             let output = self.adb_shell(command, false)?;
@@ -541,36 +622,47 @@ impl ExpandSession {
                 .write(&format!("GPT 操作 {} 输出：{}", index + 1, output));
         }
 
+        self.mark("格式化 userdata");
         self.logger.write("步骤 9/9：格式化新 userdata");
         let _ = self.adb_shell("twrp wipe data", true);
 
         Ok(backup_dir)
     }
 
-    pub fn list_backups(&self) -> Vec<PathBuf> {
-        let mut list = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(&self.cfg.backup_dir) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() && p.join("gpt-sda-before.bin").is_file() {
-                    list.push(p);
-                }
-            }
-        }
-        list
+    pub fn list_backups(&self) -> Vec<BackupInfo> {
+        backup::list_backups(&self.cfg)
     }
 
-    pub fn restore_official(&mut self, backup_dir: &Path) -> Result<()> {
-        let gpt_bin = backup_dir.join("gpt-sda-before.bin");
-        if !gpt_bin.is_file() {
-            bail!("备份目录中缺少 gpt-sda-before.bin: {:?}", backup_dir);
+    /// 用备份（zip 或旧版目录）恢复扩容前的官方 GPT，并核对恢复后的分区范围。
+    pub fn restore_official(&mut self, backup_path: &Path) -> Result<()> {
+        self.mark("检查备份");
+        let check = backup::inspect_backup(backup_path, &self.cfg);
+        if !check.supported {
+            bail!("这个备份不能用于当前刷机包：{}", check.problems.join("；"));
         }
+        let contents = backup::read_backup(backup_path)?;
+
         self.ensure_recovery()?;
+        if let Some(expected) = check.device.as_deref().filter(|d| *d != "unknown-device") {
+            if expected != self.device {
+                bail!(
+                    "备份来自 {}，当前手机是 {}。为防止写错分区表，已停止恢复。",
+                    expected,
+                    self.device
+                );
+            }
+        }
         self.init_sgdisk()?;
 
-        let remote_gpt = "/tmp/harusora-gpt-restore.bin";
-        self.adb_run(&["push", &gpt_bin.display().to_string(), remote_gpt], false)?;
+        let local_gpt = self.profile.work_dir.join("gpt-restore.bin");
+        std::fs::create_dir_all(&self.profile.work_dir)?;
+        std::fs::write(&local_gpt, &contents.gpt)?;
 
+        let remote_gpt = "/tmp/harusora-gpt-restore.bin";
+        self.adb_run(&["push", &local_gpt.display().to_string(), remote_gpt], false)?;
+        let _ = std::fs::remove_file(&local_gpt);
+
+        self.mark("写入官方分区表");
         self.logger.write("正在通过 sgdisk 恢复官方 GPT…");
         let cmd = format!(
             "{} --load-backup={} {}",
@@ -580,9 +672,41 @@ impl ExpandSession {
         self.logger.write(&format!("恢复输出: {}", res));
         let _ = self.adb_shell(&format!("rm -f {}", remote_gpt), true);
 
+        self.mark("核对分区范围");
+        self.verify_restored(&contents.plan)?;
+
+        self.mark("清除数据");
         self.logger.write("官方分区表恢复成功，正在格式化数据…");
         let _ = self.adb_shell("twrp wipe data", true);
         let _ = self.adb_shell("twrp wipe metadata", true);
+        Ok(())
+    }
+
+    /// 恢复后读取 super / userdata 的扇区范围，与备份记录的扩容前范围比对。
+    fn verify_restored(&self, plan: &std::collections::HashMap<String, String>) -> Result<()> {
+        let checks = [
+            (self.cfg.super_part, "super_old"),
+            (self.cfg.userdata_part, "userdata_old"),
+        ];
+        for (part, key) in checks {
+            let Some((first, last)) = plan.get(key).and_then(|v| backup::parse_range(v)) else {
+                self.logger
+                    .write(&format!("备份未记录 {}，跳过恢复结果核对", key));
+                continue;
+            };
+            let info = self.parse_part_info(part, &self.cfg.disk)?;
+            if info.first != first || info.last != last {
+                bail!(
+                    "恢复后分区 {} 范围为 {}-{}，与备份记录的 {}-{} 不一致，请不要重启手机并联系作者",
+                    part,
+                    info.first,
+                    info.last,
+                    first,
+                    last
+                );
+            }
+        }
+        self.logger.write("恢复结果核对通过：分区范围与扩容前一致");
         Ok(())
     }
 }

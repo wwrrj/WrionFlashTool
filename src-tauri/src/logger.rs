@@ -60,6 +60,13 @@ impl Logger {
         }
     }
 
+    /// 向前端推送任意事件（无界面时忽略）。
+    pub fn emit<S: serde::Serialize + Clone>(&self, event: &str, payload: S) {
+        if let Some(ref handle) = self.app_handle {
+            let _ = handle.emit(event, payload);
+        }
+    }
+
     pub fn log_step(&self, step: &str) {
         self.write(&format!("--- {} ---", step));
     }
