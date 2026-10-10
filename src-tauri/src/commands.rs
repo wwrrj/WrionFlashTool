@@ -237,6 +237,14 @@ pub async fn run_diagnostics_cmd(
     .map_err(|e| e.to_string())
 }
 
+/// 刷入类命令的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct FlashOutcome {
+    pub log_path: String,
+    /// 手机是否已收到重启命令（关闭自动重启或重启失败时为 false）。
+    pub rebooted: bool,
+}
+
 #[command]
 pub async fn run_flash_cmd(
     app: AppHandle,
@@ -245,9 +253,10 @@ pub async fn run_flash_cmd(
     preserve_data: bool,
     confirm_word: String,
     reboot: bool,
-) -> Result<String, String> {
+) -> Result<FlashOutcome, String> {
     let mut profile = get_active_profile(rom_root.as_deref(), None)?;
-    profile.reboot_after_success = profile.reboot_after_success && reboot;
+    // 以用户的“刷入完成后自动重启”选项为准（界面默认勾选）；刷机包里的 reboot_after_success 只影响命令行模式
+    profile.reboot_after_success = reboot;
 
     let required_word = if preserve_data {
         &profile.update_confirmation_word
@@ -267,7 +276,7 @@ pub async fn run_flash_cmd(
     session.serial = chosen_serial;
 
     let reboot_after = profile.reboot_after_success;
-    tokio::task::spawn_blocking(move || {
+    let rebooted = tokio::task::spawn_blocking(move || {
         if profile.is_official() {
             official::run_official(&profile, session, preserve_data, reboot_after, Some(&app))
         } else {
@@ -278,7 +287,7 @@ pub async fn run_flash_cmd(
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
 
-    Ok(log_path.display().to_string())
+    Ok(FlashOutcome { log_path: log_path.display().to_string(), rebooted })
 }
 
 #[command]
@@ -290,7 +299,7 @@ pub async fn run_root_flash_cmd(
     target: String,
     confirm_word: String,
     reboot: bool,
-) -> Result<String, String> {
+) -> Result<FlashOutcome, String> {
     if confirm_word.trim() != "ROOT" {
         return Err("请输入 ROOT 确认刷入".to_string());
     }
@@ -302,14 +311,31 @@ pub async fn run_root_flash_cmd(
     session.serial = chosen_serial;
     let img_path = PathBuf::from(image_path);
 
-    tokio::task::spawn_blocking(move || {
+    let rebooted = tokio::task::spawn_blocking(move || {
         flash_root_image(&profile, &mut session, &img_path, &target, reboot)
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
 
-    Ok(log_path.display().to_string())
+    Ok(FlashOutcome { log_path: log_path.display().to_string(), rebooted })
+}
+
+/// 刷机包目录（及其上一层）里文件名像 ID 补丁的 .zip / .img，供界面快速选择。
+#[command]
+pub async fn id_candidates_cmd(rom_root: Option<String>) -> Result<Vec<String>, String> {
+    let profile = get_active_profile(rom_root.as_deref(), None)?;
+    let mut dirs = vec![profile.rom_root.clone()];
+    if let Some(parent) = profile.rom_root.parent() {
+        dirs.push(parent.to_path_buf());
+    }
+    let mut found: Vec<String> = dirs
+        .iter()
+        .flat_map(|d| crate::idflash::discover_id_candidates(d))
+        .map(|p| p.display().to_string())
+        .collect();
+    found.dedup();
+    Ok(found)
 }
 
 #[command]
@@ -321,7 +347,7 @@ pub async fn run_id_flash_cmd(
     format_data: bool,
     confirm_word: String,
     reboot: bool,
-) -> Result<String, String> {
+) -> Result<FlashOutcome, String> {
     if confirm_word.trim() != "ID" {
         return Err("请输入 ID 确认刷入".to_string());
     }
@@ -333,14 +359,14 @@ pub async fn run_id_flash_cmd(
     session.serial = chosen_serial;
     let id_p = PathBuf::from(id_file);
 
-    tokio::task::spawn_blocking(move || {
+    let rebooted = tokio::task::spawn_blocking(move || {
         run_id_flash(&profile, &mut session, &id_p, format_data, reboot)
     })
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
 
-    Ok(log_path.display().to_string())
+    Ok(FlashOutcome { log_path: log_path.display().to_string(), rebooted })
 }
 
 #[command]

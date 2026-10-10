@@ -1,7 +1,21 @@
 import { useState } from 'react';
-import { BookOpen, Check, ChevronRight, Copy, HardDrive, Loader2, ScrollText } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { BookOpen, Check, ChevronRight, Copy, Loader2, ScrollText } from 'lucide-react';
 import { WIZARD_STEPS } from '../wizard';
 import type { Step } from '../wizard';
+
+/** 左侧固定显示的工具入口。 */
+export interface SidebarTool {
+  key: string;
+  label: string;
+  /** 可用时的说明 */
+  hint: string;
+  icon: ReactNode;
+  /** 不可用时的原因；为空表示可用 */
+  unavailable?: string;
+  active: boolean;
+  onOpen: () => void;
+}
 
 interface SidebarProps {
   step: Step;
@@ -14,13 +28,12 @@ interface SidebarProps {
   onShowLogs: () => void;
   onShowNotice?: () => void;
   qqGroup?: string;
-  /** 正在使用独立工具（如 Super 扩容）；此时 step 是进入工具前所在的步骤。 */
+  /** 正在使用独立工具；此时 step 是进入工具前所在的步骤。 */
   toolActive?: boolean;
-  /** 当前刷机包提供扩容时传入，用于显示“工具”入口。 */
-  onOpenExpand?: () => void;
+  tools: SidebarTool[];
 }
 
-export function Sidebar({ step, values, locked, logCount, onNavigate, onShowLogs, onShowNotice, qqGroup, toolActive, onOpenExpand }: SidebarProps) {
+export function Sidebar({ step, values, locked, logCount, onNavigate, onShowLogs, onShowNotice, qqGroup, toolActive, tools }: SidebarProps) {
   const [copied, setCopied] = useState(false);
   // 完成页上所有步骤都显示为已完成
   const current = step === 'done' ? WIZARD_STEPS.length : WIZARD_STEPS.findIndex((s) => s.id.includes(step));
@@ -67,16 +80,22 @@ export function Sidebar({ step, values, locked, logCount, onNavigate, onShowLogs
         })}
       </ol>
 
-      {onOpenExpand && (
-        <div className="rail-group">
-          <span className="rail-label">工具</span>
-          <button className={`rail-tool ${toolActive ? 'active' : ''}`} onClick={onOpenExpand} disabled={locked}>
-            <span className="rail-tool-icon"><HardDrive size={15} /></span>
-            <span className="rail-tool-text"><strong>Super 扩容 / 恢复</strong><small>分区容量不足时使用</small></span>
+      <div className="rail-group">
+        <span className="rail-label">工具</span>
+        {tools.map((tool) => (
+          <button
+            key={tool.key}
+            className={`rail-tool ${tool.active ? 'active' : ''}`}
+            onClick={tool.onOpen}
+            disabled={locked || Boolean(tool.unavailable)}
+            title={tool.unavailable}
+          >
+            <span className={`rail-tool-icon ${tool.key}`}>{tool.icon}</span>
+            <span className="rail-tool-text"><strong>{tool.label}</strong><small>{tool.unavailable ?? tool.hint}</small></span>
             <ChevronRight size={15} className="rail-tool-arrow" />
           </button>
-        </div>
-      )}
+        ))}
+      </div>
 
       <div className="rail-foot">
         <div className="rail-actions">

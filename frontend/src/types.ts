@@ -159,7 +159,7 @@ export interface BackupInfo {
 }
 
 export interface ExpandProgressEvent {
-  phase: 'plan' | 'apply' | 'restore';
+  phase: 'plan' | 'apply' | 'restore' | 'id';
   steps: string[];
   /** 当前步骤序号（从 0 开始）；等于 steps.length 表示全部完成。 */
   current: number;
@@ -192,4 +192,11 @@ export interface UsbDriverStatus {
 export interface UsbDriverInstallResult {
   reboot_required: boolean;
   message: string;
+}
+
+/** 刷入类命令的结果。 */
+export interface FlashOutcome {
+  log_path: string;
+  /** 手机是否已收到重启命令（关闭自动重启或重启失败时为 false） */
+  rebooted: boolean;
 }

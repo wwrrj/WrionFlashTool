@@ -1,5 +1,5 @@
-/** expand 是独立的扩容 / 恢复工具页，不属于线性流程。 */
-export type Step = 'welcome' | 'package' | 'device' | 'plan' | 'review' | 'run' | 'done' | 'expand';
+/** expand（扩容 / 恢复）和 idtool（刷入 ID）是独立的工具页，不属于线性流程。 */
+export type Step = 'welcome' | 'package' | 'device' | 'plan' | 'review' | 'run' | 'done' | 'expand' | 'idtool';
 export type FlashMode = 'clean' | 'update';
 
 export interface FlashOptions {

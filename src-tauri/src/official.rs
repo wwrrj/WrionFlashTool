@@ -381,6 +381,7 @@ struct Runner<'a> {
     index: usize,
     total: usize,
     stage: u32,
+    rebooted: bool,
 }
 
 impl Runner<'_> {
@@ -451,12 +452,8 @@ impl Runner<'_> {
                     self.session.run_fastboot(&["set_active", slot], None, false)?;
                 }
                 ScriptOp::Reboot => {
-                    if self.reboot {
-                        self.step(op, "重启手机".to_string());
-                        self.session.run_fastboot(&["reboot"], None, false)?;
-                    } else {
-                        self.step(op, "跳过重启（已关闭自动重启）".to_string());
-                    }
+                    self.step(op, if self.reboot { "重启手机".to_string() } else { "跳过重启（已关闭自动重启）".to_string() });
+                    self.rebooted = self.session.reboot_to_system(self.reboot)?;
                 }
             }
         }
@@ -464,14 +461,14 @@ impl Runner<'_> {
     }
 }
 
-/// 按官方脚本刷入。`preserve_data` 选择 flash_all_except_storage.bat。
+/// 按官方脚本刷入。`preserve_data` 选择 flash_all_except_storage.bat。返回手机是否已重启进系统。
 pub fn run_official(
     profile: &FlashProfile,
     mut session: DeviceSession,
     preserve_data: bool,
     reboot: bool,
     app: Option<&AppHandle>,
-) -> Result<()> {
+) -> Result<bool> {
     let info = profile.official.as_ref().ok_or_else(|| anyhow!("当前不是官方线刷包"))?;
     let script = if preserve_data { info.keep_data_script.as_deref() } else { info.clean_script.as_deref() }
         .ok_or_else(|| anyhow!(if preserve_data { "这个官方包不支持保留数据更新" } else { "这个官方包没有完整线刷脚本" }))?;
@@ -493,9 +490,10 @@ pub fn run_official(
     }
     session.logger.write(&format!("按官方脚本 {} 刷入，共 {} 个操作", script, flatten(&ops).len()));
 
-    let mut runner = Runner { profile, session: &session, app, reboot, index: 0, total: flatten(&ops).len(), stage: 0 };
+    let mut runner = Runner { profile, session: &session, app, reboot, index: 0, total: flatten(&ops).len(), stage: 0, rebooted: false };
     runner.run(&ops)?;
     runner.emit_stage(6);
+    let rebooted = runner.rebooted;
     session.logger.write("官方脚本执行完成");
-    Ok(())
+    Ok(rebooted)
 }

@@ -3,6 +3,8 @@ import { ErrorModal } from './components/ErrorModal';
 import { LogDrawer } from './components/LogDrawer';
 import { NoticeModal } from './components/NoticeModal';
 import { Sidebar } from './components/Sidebar';
+import type { SidebarTool } from './components/Sidebar';
+import { HardDrive, Sparkles } from 'lucide-react';
 import { SuperShortModal } from './components/SuperShortModal';
 import { Titlebar } from './components/Titlebar';
 import { useDevices } from './hooks/useDevices';
@@ -13,6 +15,7 @@ import { errorMessage, formatGiB, modeLabel } from './lib/format';
 import { storage } from './lib/storage';
 import { DonePage } from './pages/DonePage';
 import { ExpandPage } from './pages/ExpandPage';
+import { IdPage } from './pages/IdPage';
 import { DevicePage } from './pages/DevicePage';
 import { PackagePage } from './pages/PackagePage';
 import { PlanPage } from './pages/PlanPage';
@@ -36,12 +39,15 @@ export function App() {
   const [options, setOptions] = useState<FlashOptions>(DEFAULT_OPTIONS);
   const [preparing, setPreparing] = useState(true);
   const [extraLabel, setExtraLabel] = useState<string | null>(null);
+  /** 刷入结束时手机是否真的重启了（用于完成页提示）。 */
+  const [rebooted, setRebooted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   /** 进入扩容工具前所在的步骤，退出工具时回到这里。 */
   const [returnStep, setReturnStep] = useState<Step>('device');
-  const [expandBusy, setExpandBusy] = useState(false);
+  /** 工具页（扩容 / 刷入 ID）正在执行，期间锁定导航。 */
+  const [toolBusy, setToolBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   /** 预检发现 super 容量不足时的报告，非空即弹出扩容提示。 */
@@ -123,23 +129,28 @@ export function App() {
       }
       setPreparing(false);
       addLog(preserveData ? '>>> 开始系统更新（保留数据）…' : '>>> 开始完整线刷（清空数据）…');
-      const logPath = await api.runFlash({
+      // 只在最后一步重启：后面还有 ID 补丁或 Root 时，主流程不重启
+      let outcome = await api.runFlash({
         chosenSerial: serial,
         preserveData,
         confirmWord: preserveData ? profile.update_confirmation_word || 'UPDATE' : profile.confirmation_word || 'WIPE',
         reboot: !external && !options.rootEnabled && reboot,
       });
-      addLog(`[主流程完成] 日志保存于 ${logPath}`);
+      addLog(`[主流程完成] 日志保存于 ${outcome.log_path}`);
       if (external) {
         setExtraLabel('正在刷入 ID 补丁…');
         addLog('>>> 开始刷入 ID 补丁…');
-        addLog(`[ID 补丁完成] ${await api.runIdFlash({ chosenSerial: serial, idFile: options.idPath, reboot: !options.rootEnabled && reboot })}`);
+        outcome = await api.runIdFlash({ chosenSerial: serial, idFile: options.idPath, reboot: !options.rootEnabled && reboot });
+        addLog(`[ID 补丁完成] 日志保存于 ${outcome.log_path}`);
       }
       if (options.rootEnabled) {
         setExtraLabel('正在刷入 Root 镜像…');
         addLog(`>>> 开始刷入 ${options.rootTarget} Root 镜像…`);
-        addLog(`[Root 完成] ${await api.runRootFlash({ chosenSerial: serial, imagePath: options.rootPath, target: options.rootTarget, reboot })}`);
+        outcome = await api.runRootFlash({ chosenSerial: serial, imagePath: options.rootPath, target: options.rootTarget, reboot });
+        addLog(`[Root 完成] 日志保存于 ${outcome.log_path}`);
       }
+      setRebooted(outcome.rebooted);
+      if (reboot && !outcome.rebooted) addLog('[提示] 手机没有自动重启，请长按电源键手动重启');
       setStep('done');
     } catch (e) {
       const message = errorMessage(e);
@@ -159,10 +170,12 @@ export function App() {
   const device = devices.current;
   const showLogs = () => setLogsOpen(true);
   const running = step === 'run' && !error;
-  const openExpand = () => {
-    if (step !== 'expand') setReturnStep(step);
-    setStep('expand');
+  const inTool = step === 'expand' || step === 'idtool';
+  const openTool = (tool: Step) => {
+    if (!inTool) setReturnStep(step);
+    setStep(tool);
   };
+  const openExpand = () => openTool('expand');
   const exitExpand = (expanded: boolean) => {
     if (expanded) {
       // 扩容会清空数据，之后只能完整线刷；回到连接手机重新检查容量
@@ -173,8 +186,28 @@ export function App() {
       setStep(returnStep);
     }
   };
-  const inExpand = step === 'expand';
-  const busy = running || expandBusy;
+  const busy = running || toolBusy;
+  const isOfficial = profile?.kind === 'official';
+  const tools: SidebarTool[] = [
+    {
+      key: 'idtool',
+      label: '刷入 ID 补丁',
+      hint: '更换 mi_ext 中的 ID',
+      icon: <Sparkles size={15} />,
+      unavailable: !profile ? '需要先选择刷机包' : isOfficial ? '官方线刷包不需要 ID 补丁' : undefined,
+      active: step === 'idtool',
+      onOpen: () => openTool('idtool'),
+    },
+    {
+      key: 'expand',
+      label: 'Super 扩容 / 恢复',
+      hint: '分区容量不足时使用',
+      icon: <HardDrive size={15} />,
+      unavailable: !profile ? '需要先选择刷机包' : !profile.expansion?.enabled ? '当前刷机包未提供扩容' : undefined,
+      active: step === 'expand',
+      onOpen: openExpand,
+    },
+  ];
 
   const railValues = [
     profile ? profile.package_name || profile.display_name : null,
@@ -191,9 +224,9 @@ export function App() {
       {step === 'welcome' ? <WelcomePage onAgree={agree} onShowNotice={profile ? () => setNoticeOpen(true) : undefined} /> : (
       <div className="shell">
       <Sidebar
-        step={inExpand ? returnStep : step}
-        toolActive={inExpand}
-        onOpenExpand={profile?.expansion?.enabled ? openExpand : undefined}
+        step={inTool ? returnStep : step}
+        toolActive={inTool}
+        tools={tools}
         values={railValues}
         locked={busy || checking}
         logCount={events.logs.length}
@@ -214,9 +247,12 @@ export function App() {
       )}
       {step === 'review' && profile && <ReviewPage profile={profile} device={device} options={options} onBack={() => setStep('plan')} onStart={() => void start()} />}
       {step === 'run' && <RunPage preparing={preparing} extraLabel={extraLabel} stage={events.stage} partition={events.partition} step={events.step} logs={events.logs} onShowLogs={showLogs} />}
-      {step === 'done' && <DonePage reboot={options.reboot} onAgain={again} onShowLogs={showLogs} onOpenLogsFolder={openLogsFolder} />}
-      {inExpand && profile?.expansion && (
-        <ExpandPage config={profile.expansion} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setExpandBusy} onExit={exitExpand} />
+      {step === 'done' && <DonePage rebootWanted={options.reboot} rebooted={rebooted} onAgain={again} onShowLogs={showLogs} onOpenLogsFolder={openLogsFolder} />}
+      {step === 'expand' && profile?.expansion && (
+        <ExpandPage config={profile.expansion} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={exitExpand} />
+      )}
+      {step === 'idtool' && profile && (
+        <IdPage serial={devices.selectedSerial} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={() => setStep(returnStep)} />
       )}
       </div>
       </div>

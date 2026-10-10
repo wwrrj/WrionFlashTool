@@ -317,6 +317,24 @@ impl DeviceSession {
         bail!("等待设备 {} 进入 fastboot 超时。", chosen_serial);
     }
 
+    /// 刷入结束后重启进系统。`enabled` 为用户的“刷入完成后自动重启”选项。
+    /// 返回手机是否已收到重启命令；重启失败不会让刷入失败，但会写入日志。
+    pub fn reboot_to_system(&self, enabled: bool) -> Result<bool> {
+        if !enabled {
+            self.logger.write("已关闭“刷入完成后自动重启”，手机保持在当前模式，请手动重启。");
+            return Ok(false);
+        }
+        if self.dry_run {
+            return Ok(false);
+        }
+        let res = self.run_fastboot(&["reboot"], Some("重启手机进入系统"), true)?;
+        if res.code != 0 {
+            self.logger.write(&format!("[警告] 重启命令失败（{}），请手动长按电源键重启手机。", res.code));
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
     pub fn wait_for_mode(&self, want_userspace: bool, timeout_secs: u64) -> Result<()> {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(timeout_secs) {

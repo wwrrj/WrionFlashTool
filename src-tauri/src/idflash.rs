@@ -1,5 +1,6 @@
 use crate::config::FlashProfile;
 use crate::device::DeviceSession;
+use crate::expand::ExpandProgress;
 use crate::flash::{
     is_overflow_flash_error, logical_flash_size, recreate_logical_partition,
     MIN_LOGICAL_FLASH_BYTES,
@@ -200,15 +201,31 @@ pub fn format_userdata_metadata(session: &DeviceSession) -> Result<()> {
     Ok(())
 }
 
+/// ID 刷入的步骤，按是否清除数据 / 是否重启组合。
+const ID_STEPS: [&[&str]; 4] = [
+    &["连接手机", "校验机型", "进入 Fastbootd", "刷入 mi_ext"],
+    &["连接手机", "校验机型", "进入 Fastbootd", "刷入 mi_ext", "重启手机"],
+    &["连接手机", "校验机型", "进入 Fastbootd", "刷入 mi_ext", "清除数据"],
+    &["连接手机", "校验机型", "进入 Fastbootd", "刷入 mi_ext", "清除数据", "重启手机"],
+];
+
 pub fn run_id_flash(
     profile: &FlashProfile,
     session: &mut DeviceSession,
     id_file: &Path,
     format_data: bool,
     reboot: bool,
-) -> Result<()> {
+) -> Result<bool> {
+    let steps = ID_STEPS[(format_data as usize) * 2 + reboot as usize];
+    let mark = |session: &DeviceSession, step: &str| {
+        let current = steps.iter().position(|s| *s == step).unwrap_or(steps.len());
+        session.logger.emit("expand_progress", ExpandProgress { phase: "id", steps, current, detail: None });
+    };
+
+    mark(session, "连接手机");
     let chosen_serial = session.serial.clone();
     session.select_device(chosen_serial.as_deref())?;
+    mark(session, "校验机型");
     let product = session
         .getvar("product", false)?
         .ok_or_else(|| anyhow!("无法读取机型 product 代号"))?;
@@ -220,18 +237,22 @@ pub fn run_id_flash(
         );
     }
 
+    mark(session, "进入 Fastbootd");
     ensure_fastbootd(session)?;
+    mark(session, "刷入 mi_ext");
     let resolved = resolve_id_input(id_file, &profile.work_dir)?;
     flash_mi_ext_image(session, &resolved, &profile.work_dir)?;
     session.logger.write("  ID 补丁刷入完成。");
 
     if format_data {
+        mark(session, "清除数据");
         format_userdata_metadata(session)?;
     }
 
-    if reboot && !session.dry_run {
-        session.run_fastboot(&["reboot"], Some("重启系统"), true)?;
+    if reboot {
+        mark(session, "重启手机");
     }
-
-    Ok(())
+    let rebooted = session.reboot_to_system(reboot)?;
+    mark(session, "");
+    Ok(rebooted)
 }

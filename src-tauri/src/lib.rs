@@ -34,6 +34,7 @@ pub fn run() {
             commands::run_flash_cmd,
             commands::run_root_flash_cmd,
             commands::run_id_flash_cmd,
+            commands::id_candidates_cmd,
             commands::get_expand_plan_cmd,
             commands::apply_expand_cmd,
             commands::list_backups_cmd,

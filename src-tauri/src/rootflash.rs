@@ -56,7 +56,7 @@ pub fn flash_root_image(
     image_path: &Path,
     target: &str, // "boot" or "init_boot"
     reboot: bool,
-) -> Result<()> {
+) -> Result<bool> {
     verify_boot_image(image_path)?;
 
     let chosen_serial = session.serial.clone();
@@ -91,9 +91,5 @@ pub fn flash_root_image(
 
     session.logger.write("  Root 镜像刷入完成。");
 
-    if reboot && !session.dry_run {
-        session.run_fastboot(&["reboot"], Some("重启系统"), true)?;
-    }
-
-    Ok(())
+    session.reboot_to_system(reboot)
 }

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  ArrowLeft, ArrowRight, CheckCircle2, FileArchive, Folder, FolderOpen, HardDrive, RotateCcw, ShieldAlert, TriangleAlert,
+  ArrowLeft, ArrowRight, CheckCircle2, FileArchive, Folder, FolderOpen, HardDrive, RotateCcw, TriangleAlert,
 } from 'lucide-react';
 import { PageFrame } from '../components/PageFrame';
-import { ProgressBar } from '../components/ProgressBar';
-import { LogTail, StepTimeline } from '../components/StepTimeline';
+import { ToolProgress } from '../components/ToolProgress';
 import { useExpandProgress } from '../hooks/useExpandProgress';
 import { api, pickFile, pickFolder } from '../lib/api';
 import { baseName, errorMessage, GIB } from '../lib/format';
@@ -130,21 +129,9 @@ export function ExpandPage({ config, logs, onShowLogs, onLog, onBusyChange, onEx
 
   // ---------- 执行中：实时进度 ----------
   if (busy) {
-    const steps = progress?.steps ?? [];
-    const current = progress?.current ?? -1;
-    const percent = steps.length ? (Math.max(current, 0) / steps.length) * 100 : 0;
-    const label = steps.length && current >= 0 && current < steps.length ? steps[current] : '正在连接手机…';
     const title = stage === 'reading' ? '正在读取扩容方案' : tab === 'expand' ? '正在扩容 Super' : '正在恢复官方分区表';
-    return (
-      <PageFrame title={title} description={stage === 'reading' ? '只读取分区表，确认方案前不会修改任何分区。' : '整个过程需要几分钟，期间手机会多次重启。'}>
-        <div className="callout warn strong"><ShieldAlert size={17} /><span><b>请勿拔出数据线，也不要操作手机。</b>手机进入 Fastboot、Recovery 或重启都是正常现象。</span></div>
-        <section className="card">
-          <ProgressBar percent={Math.max(percent, 3)} label={label} detail={`${Math.min(Math.max(current, 0) + 1, steps.length || 1)} / ${steps.length || '—'}`} />
-          {steps.length > 0 && <StepTimeline steps={steps.map((name) => ({ name }))} current={current} detail={progress?.detail} />}
-        </section>
-        <LogTail logs={logs} onShowLogs={onShowLogs} />
-      </PageFrame>
-    );
+    const description = stage === 'reading' ? '只读取分区表，确认方案前不会修改任何分区。' : '整个过程需要几分钟，期间手机会多次重启。';
+    return <ToolProgress title={title} description={description} progress={progress} logs={logs} onShowLogs={onShowLogs} />;
   }
 
   // ---------- 完成 ----------

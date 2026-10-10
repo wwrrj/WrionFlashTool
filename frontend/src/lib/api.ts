@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import type {
-  BackupInfo, DeviceSummary, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, FlashProfile, PackageInfo,
+  BackupInfo, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, FlashProfile, PackageInfo,
 } from '../types';
 
 export const isTauri = () =>
@@ -126,14 +126,21 @@ export const api = {
     const superBytes = short ? 8321499136 : 17179869184;
     return { serial: 'preview', product: 'shennong', super_bytes: superBytes, super_required: 17179869184, super_ready: !short, is_userspace: false, anti_ok: true };
   },
-  runFlash: async (args: { chosenSerial: string | null; preserveData: boolean; confirmWord: string; reboot: boolean }): Promise<string> => {
+  runFlash: async (args: { chosenSerial: string | null; preserveData: boolean; confirmWord: string; reboot: boolean }): Promise<FlashOutcome> => {
     if (isTauri()) return invoke('run_flash_cmd', args);
     await wait(1200);
-    return 'preview.log';
+    return { log_path: 'preview.log', rebooted: args.reboot };
   },
-  runIdFlash: (args: { chosenSerial: string | null; idFile: string; reboot: boolean }): Promise<string> =>
-    invoke('run_id_flash_cmd', { ...args, formatData: false, confirmWord: 'ID' }),
-  runRootFlash: (args: { chosenSerial: string | null; imagePath: string; target: string; reboot: boolean }): Promise<string> =>
+  runIdFlash: async (args: { chosenSerial: string | null; idFile: string; reboot: boolean; formatData?: boolean }): Promise<FlashOutcome> => {
+    if (isTauri()) return invoke('run_id_flash_cmd', { formatData: false, ...args, confirmWord: 'ID' });
+    const steps = ['连接手机', '校验机型', '进入 Fastbootd', '刷入 mi_ext', ...(args.formatData ? ['清除数据'] : []), ...(args.reboot ? ['重启手机'] : [])];
+    await simulateExpand('id', steps);
+    return { log_path: 'preview-id.log', rebooted: args.reboot };
+  },
+  /** 刷机包目录里文件名像 ID 补丁的文件。 */
+  idCandidates: (): Promise<string[]> =>
+    isTauri() ? invoke('id_candidates_cmd', {}) : Promise.resolve(['E:\\latest=rom\\shennong_ID_mi_ext.zip']),
+  runRootFlash: (args: { chosenSerial: string | null; imagePath: string; target: string; reboot: boolean }): Promise<FlashOutcome> =>
     invoke('run_root_flash_cmd', { ...args, confirmWord: 'ROOT' }),
 
   expandPlan: async (): Promise<ExpandPlan> => {

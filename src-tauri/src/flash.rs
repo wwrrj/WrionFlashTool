@@ -816,12 +816,13 @@ pub fn initialize_crc(profile: &FlashProfile, session: &DeviceSession) -> Result
     Ok(())
 }
 
+/// 执行完整刷入流程；返回手机是否已重启进系统。
 pub fn execute_flash_pipeline(
     profile: &FlashProfile,
     mut session: DeviceSession,
     preserve_data: bool,
     app_handle: Option<&AppHandle>,
-) -> Result<()> {
+) -> Result<bool> {
     let emit_stage = |stage: u32, title: &str| {
         if let Some(h) = app_handle {
             let _ = h.emit(
@@ -962,9 +963,5 @@ pub fn execute_flash_pipeline(
     emit_stage(6, "刷写圆满完成");
     session.logger.write("=== 刷机流程全部完成 ===");
 
-    if profile.reboot_after_success && !session.dry_run {
-        session.run_fastboot(&["reboot"], Some("重启设备进入系统"), true)?;
-    }
-
-    Ok(())
+    session.reboot_to_system(profile.reboot_after_success)
 }

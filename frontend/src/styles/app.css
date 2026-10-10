@@ -60,7 +60,7 @@ li.paused .rail-text small { color: var(--info); }
 .rail-tool.active .rail-tool-icon { color: #fff; background: #d97706; }
 .rail-tool-text { flex: 1; min-width: 0; display: grid; }
 .rail-tool-text strong { overflow: hidden; color: var(--ink); font-size: 12.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.rail-tool-text small { color: var(--faint); font-size: 11px; }
+.rail-tool-text small { overflow: hidden; color: var(--faint); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .rail-tool-arrow { flex: none; color: #b0b5bc; transition: transform .15s, color .15s; }
 .rail-tool:not(:disabled):hover .rail-tool-arrow { color: var(--ink); transform: translateX(2px); }
 
@@ -366,3 +366,7 @@ code { padding: 1px 6px; border: 1px solid var(--line); border-radius: 5px; colo
 .driver-row > span { flex: 1; min-width: 0; display: grid; }
 .driver-row strong { font-size: 12.5px; }
 .driver-row small { color: var(--muted); font-size: 11.5px; }
+
+.rail-group .rail-tool + .rail-tool { margin-top: 0; }
+.rail-tool-icon.idtool { color: #7540b5; background: #f1eaff; }
+.rail-tool.active .rail-tool-icon.idtool { color: #fff; background: #7c3aed; }
