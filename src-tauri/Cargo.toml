@@ -1,0 +1,32 @@
+[package]
+name = "harusora_flash_tool"
+version = "2.0.0"
+description = "Harusora 团队配置驱动的 Android fastboot 刷机工具 (Tauri v2 + Rust)"
+authors = ["Harusora Team"]
+edition = "2021"
+
+[lib]
+name = "harusora_flash_tool_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+tokio = { version = "1", features = ["full"] }
+byteorder = "1.5"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+chrono = "0.4"
+walkdir = "2"
+regex = "1.10"
+anyhow = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,0 +1,5 @@
+device=houji
+build_number=OS2.0.215.0.VNCCNXM
+userdata_version=20250918.0000.00
+mi_os_build_version=OS2.0.215.0.VNCCNXM
+custom_bulid_number=houji.cn.1.1.0328
