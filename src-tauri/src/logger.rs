@@ -36,7 +36,7 @@ impl Logger {
         self.file = Some(Arc::new(Mutex::new(file)));
 
         let header = format!(
-            "=== HarusoraFlashTool Log Started at {} ===\n",
+            "=== Wrion FlashTool Log Started at {} ===\n",
             Local::now().format("%Y-%m-%d %H:%M:%S")
         );
         self.write(&header);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { isTauri } from '../lib/api';
+import { isTauri, onPreview } from '../lib/api';
 import type { FlashStageEvent, FlashStepEvent, PartitionProgressEvent } from '../types';
 
 /** 订阅后端推送的日志、阶段和分区转换进度。 */
@@ -14,7 +14,15 @@ export function useFlashEvents() {
   const resetProgress = useCallback(() => { setStage(null); setPartition(null); setStep(null); }, []);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isTauri()) {
+      // 浏览器预览：api 里的演示刷入会派发同名的窗口事件
+      const offs = [
+        onPreview<string>('log_line', addLog),
+        onPreview<FlashStageEvent>('flash_stage', setStage),
+        onPreview<PartitionProgressEvent>('partition_progress', setPartition),
+      ];
+      return () => offs.forEach((off) => off());
+    }
     const subs = [
       listen<string>('log_line', (e) => addLog(e.payload)),
       listen<FlashStageEvent>('flash_stage', (e) => setStage(e.payload)),

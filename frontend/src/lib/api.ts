@@ -1,7 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { FLASH_STAGES } from '../wizard';
 import type {
-  BackupInfo, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, FlashProfile, PackageInfo,
+  BackupInfo, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, ExtractProgressEvent, FlashProfile,
+  FlashStageEvent, PackageInfo, PartitionProgressEvent,
 } from '../types';
 
 export const isTauri = () =>
@@ -13,7 +15,7 @@ const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve,
 const previewProfile: FlashProfile = {
   rom_root: 'D:\\Preview\\ROM', profile_path: '', codenames: ['shennong', 'shennongpro'],
   package_name: 'ColorOS 16 Porting for Xiaomi 14 Pro · Vanilla', display_name: 'Xiaomi 14 Pro', notes: ['刷入前请备份重要资料。', '刷入过程中不要断开 USB。'],
-  author: 'Harusora Team', qq_group: '2858594753', build_date: '2026-09-19', minimum_super_bytes: 0,
+  author: 'Wrion Team', qq_group: '', build_date: '2026-09-19', minimum_super_bytes: 0,
   erase_if_present: [], pre_erase: [], images_dir: '', super_dir: '', work_dir: '', logs_dir: '', tools_dir: '',
   firmware: [], boot_chain: [], final_data: [], slot_suffix: '', dynamic_partitions: [{ name: 'mi_ext', dat_bytes: 0 }],
   flash_crc_lists: false, crc_list_file: '', sparse_crc_list_file: '', require_wipe_confirmation: true,
@@ -24,7 +26,7 @@ const previewProfile: FlashProfile = {
     userdata_part: 33, backup_dir: 'D:\\Preview\\ROM\\backup', sgdisk_dir: '', remote_sgdisk_dir: '',
     confirm_word: 'EXPAND', restore_confirm_word: 'RESTORE',
   },
-  kind: 'harusora',
+  kind: 'profile',
 };
 
 /** 预览用的小米官方线刷包（?preview=official）。 */
@@ -53,6 +55,54 @@ async function simulateExpand(phase: ExpandProgressEvent['phase'], steps: string
     if (steps[i].startsWith('等待')) { emit(i, '等待手机进入 Recovery… 已等待 3 秒'); await wait(500); }
   }
   emit(steps.length);
+}
+
+/** 浏览器预览：以 `preview:<后端事件名>` 派发窗口事件，代替 Tauri 的 listen。 */
+export const emitPreview = <T,>(name: string, payload: T) =>
+  window.dispatchEvent(new CustomEvent<T>(`preview:${name}`, { detail: payload }));
+
+export function onPreview<T>(name: string, handler: (payload: T) => void) {
+  const listener = (e: Event) => handler((e as CustomEvent<T>).detail);
+  window.addEventListener(`preview:${name}`, listener);
+  return () => window.removeEventListener(`preview:${name}`, listener);
+}
+
+/** 浏览器预览：模拟刷入的阶段、分区转换进度和日志。 */
+async function simulateFlash(preserveData: boolean, reboot: boolean) {
+  const titles = FLASH_STAGES.map((s) => s.name);
+  const stage = (n: number) => {
+    emitPreview<FlashStageEvent>('flash_stage', { stage: n, total: titles.length, title: titles[n - 1] });
+    emitPreview('log_line', `--- 阶段 ${n}/${titles.length}：${titles[n - 1]}`);
+  };
+  const log = (line: string) => emitPreview('log_line', line);
+  stage(1);
+  log('[检查] shennong · 防回滚 1 / 刷机包 1');
+  await wait(700);
+  stage(2);
+  for (const part of ['xbl', 'xbl_config', 'abl', 'tz', 'hyp', 'modem']) {
+    log(`fastboot flash ${part}_ab images/${part}.img`);
+    await wait(160);
+    log(`Writing '${part}_ab' OKAY`);
+  }
+  stage(3);
+  for (const part of ['boot', 'init_boot', 'vendor_boot', 'dtbo', 'vbmeta', 'vbmeta_system']) {
+    log(`fastboot flash ${part}_ab images/${part}.img`);
+    await wait(140);
+  }
+  stage(4);
+  for (const name of ['system', 'system_ext', 'product', 'vendor', 'odm', 'mi_ext']) {
+    for (let percent = 10; percent <= 100; percent += 15) {
+      emitPreview<PartitionProgressEvent>('partition_progress', { name, done: percent, total: 100, percent: Math.min(percent, 100) });
+      await wait(90);
+    }
+    log(`[super] ${name} 写入完成`);
+  }
+  stage(5);
+  log(preserveData ? '[userdata] 保留用户数据' : 'fastboot erase userdata OKAY');
+  await wait(600);
+  stage(6);
+  log(reboot ? 'fastboot reboot OKAY' : '[提示] 已关闭自动重启');
+  await wait(500);
 }
 
 const previewPlan: ExpandPlan = {
@@ -92,7 +142,13 @@ export const api = {
 
   extractPackage: async (zipPath: string, destDir: string): Promise<string> => {
     if (isTauri()) return invoke('extract_package_cmd', { zipPath, destDir });
-    await wait(800);
+    const files = ['images/xbl.img', 'images/boot.img', 'images/super/system.new.dat', 'images/super/product.new.dat', 'images/super/vendor.new.dat'];
+    const total = 10453863473;
+    for (let i = 0; i <= 20; i++) {
+      const fileIndex = Math.min(Math.floor((i / 20) * files.length), files.length - 1);
+      emitPreview<ExtractProgressEvent>('extract_progress', { done_bytes: (total * i) / 20, total_bytes: total, file_index: fileIndex, file_count: 80, current: files[fileIndex] });
+      await wait(80);
+    }
     previewReady = true;
     return destDir;
   },
@@ -128,7 +184,7 @@ export const api = {
   },
   runFlash: async (args: { chosenSerial: string | null; preserveData: boolean; confirmWord: string; reboot: boolean }): Promise<FlashOutcome> => {
     if (isTauri()) return invoke('run_flash_cmd', args);
-    await wait(1200);
+    await simulateFlash(args.preserveData, args.reboot);
     return { log_path: 'preview.log', rebooted: args.reboot };
   },
   runIdFlash: async (args: { chosenSerial: string | null; idFile: string; reboot: boolean; formatData?: boolean }): Promise<FlashOutcome> => {
@@ -164,13 +220,14 @@ export const api = {
 };
 
 export async function pickFile(name: string, extensions: string[]): Promise<string | null> {
-  if (!isTauri()) return null;
+  // 浏览器预览没有系统文件对话框，返回演示路径以便走完流程
+  if (!isTauri()) return extensions.includes('zip') ? 'D:\\Downloads\\Xiaomi14Pro_Vanilla.zip' : 'D:\\Downloads\\magisk_patched.img';
   const picked = await open({ multiple: false, directory: false, filters: [{ name, extensions }] });
   return typeof picked === 'string' ? picked : null;
 }
 
 export async function pickFolder(): Promise<string | null> {
-  if (!isTauri()) return null;
+  if (!isTauri()) return 'E:\\rom\\Xiaomi14Pro_Vanilla';
   const picked = await open({ multiple: false, directory: true });
   return typeof picked === 'string' ? picked : null;
 }

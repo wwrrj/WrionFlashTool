@@ -16,7 +16,9 @@ use zip::ZipArchive;
 
 use crate::config::DEFAULT_PROFILE_REL;
 
-const MARKER_FILE: &str = ".harusora_extract.json";
+const MARKER_FILE: &str = ".wrion_extract.json";
+/// 改名前写入的解压标记，仍然识别，避免重新解压。
+const LEGACY_MARKER_FILE: &str = ".harusora_extract.json";
 const COPY_BUF: usize = 1 << 20;
 
 static ACTIVE_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -132,7 +134,9 @@ fn zip_identity(zip_path: &Path) -> Result<Marker> {
 }
 
 fn read_marker(dest: &Path) -> Option<Marker> {
-    let text = fs::read_to_string(dest.join(MARKER_FILE)).ok()?;
+    let text = fs::read_to_string(dest.join(MARKER_FILE))
+        .or_else(|_| fs::read_to_string(dest.join(LEGACY_MARKER_FILE)))
+        .ok()?;
     serde_json::from_str(&text).ok()
 }
 

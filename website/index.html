@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wrion FlashTool</title>
+  <meta name="description" content="面向 Windows 的 Android 刷机工具：五步向导、完整线刷与保留数据更新、ID 补丁、Root 镜像与 Super 扩容。" />
+  <meta name="theme-color" content="#0a0b0d" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    // 首次打开播放开场动画；?intro=1 强制播放，?intro=0 跳过
+    (function () {
+      var q = new URLSearchParams(location.search).get('intro');
+      var seen = false;
+      try { seen = localStorage.getItem('wrion.intro-seen') === 'yes'; } catch (e) {}
+      var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var play = q === '1' || (q !== '0' && !seen && !reduce);
+      document.documentElement.classList.add(play ? 'intro' : 'no-intro');
+    })();
+  </script>
+</head>
+<body>
+  <div class="intro-layer" id="intro" aria-hidden="true">
+    <canvas id="intro-canvas"></canvas>
+    <div class="intro-hud">
+      <div><span class="hud-dim">wrion-flashtool</span> <span class="hud-dim">v2.0</span></div>
+      <div><span class="hud-prompt">&gt;</span> flash <span id="hud-file">Wrion_FlashTool.img</span></div>
+      <div id="hud-status">writing <span id="hud-addr">0x00000000</span> <span id="hud-pct">0%</span></div>
+    </div>
+    <div class="intro-bar"><span id="intro-bar"></span></div>
+    <button class="intro-skip" id="intro-skip" type="button">跳过 <span aria-hidden="true">›</span></button>
+  </div>
+
+  <header class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="logo" href="#top" aria-label="Wrion FlashTool">
+        <span class="logo-mark">W</span>
+        <span>Wrion</span>
+        <span class="tool-chip"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>FlashTool</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#tour">界面</a>
+        <a href="#features">功能</a>
+        <a href="#packages">刷机包</a>
+        <a href="#download">下载</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="btn ghost small hide-sm" href="https://github.com/wwrrj/WrionFlashTool" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+          GitHub
+        </a>
+        <a class="btn primary small" href="#download">下载</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="page hero" id="home" data-page="首页">
+      <div class="hero-copy">
+        <span class="pill reveal-hero"><i class="pill-dot"></i> v2.0 · Windows 10 / 11</span>
+        <h1 class="hero-title" id="hero-title"><span data-intro class="soft">Wrion</span> <span data-intro class="flash">FlashTool<i class="flash-bar" aria-hidden="true"></i><i class="flash-bolt" aria-hidden="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></i></span></h1>
+        <p class="hero-lead reveal-hero">面向 Windows 的 Android 刷机工具。读取刷机包配置，<br class="hide-sm" />按步骤完成设备检查、分区写入与日志记录。</p>
+        <div class="hero-actions reveal-hero">
+          <a class="btn primary large" href="#download">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0-5-5m5 5 5-5M4 21h16"/></svg>
+            下载 Windows 版
+          </a>
+          <a class="btn large" href="#tour">查看界面</a>
+        </div>
+        <ul class="hero-meta reveal-hero">
+          <li>Rust · Tauri 2</li>
+          <li>内嵌 platform-tools</li>
+          <li>单文件，无需安装</li>
+        </ul>
+      </div>
+      <a class="scroll-hint reveal-hero" href="#tour" aria-label="向下滑动">
+        <span></span>
+      </a>
+    </section>
+
+    <section class="page tour" id="tour" data-page="界面">
+      <div class="tour-inner">
+        <div class="tour-head reveal" id="tour-head">
+          <div>
+            <span class="eyebrow">软件界面</span>
+            <h2>真实界面，直接上手</h2>
+          </div>
+          <span class="tour-note"><i class="live-dot"></i> 演示数据 · 可以直接点击操作</span>
+        </div>
+        <div class="stage reveal" id="stage">
+          <nav class="strip" id="strip" aria-label="切换界面">
+            <!-- 由 main.js 生成：台前调度式的倾斜实时缩略图 -->
+          </nav>
+          <div class="stage-main" id="stage-main">
+            <div class="window-wrap" id="window-wrap">
+              <div class="window" id="window">
+                <iframe id="app-frame" title="Wrion FlashTool 界面演示" src="about:blank" loading="eager"></iframe>
+                <div class="window-loading" id="window-loading"><span></span></div>
+              </div>
+            </div>
+            <div class="tour-caption" id="tour-caption" aria-live="polite">
+              <strong id="tour-title">选择刷机包</strong>
+              <p id="tour-text"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="page section alt" id="features" data-page="功能">
+      <div class="container">
+        <div class="section-head reveal">
+          <span class="eyebrow">功能</span>
+          <h2>该有的都在一个程序里</h2>
+          <p>从解压刷机包到分区扩容，不需要再另外准备工具和命令行。</p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature reveal">
+            <span class="f-icon"><svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9 2 2 4-4"/></svg></span>
+            <h3>刷机向导</h3>
+            <p>选择 ROM、连接设备、核对计划、执行刷入并查看结果，左侧进度栏随时可以回到已完成的步骤。</p>
+          </article>
+          <article class="feature reveal">
+            <span class="f-icon"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></span>
+            <h3>完整线刷与保留数据更新</h3>
+            <p>根据包内配置和脚本提供可用操作。更新脚本仍会改写用户数据时，不提供保留数据选项。</p>
+          </article>
+          <article class="feature reveal">
+            <span class="f-icon"><svg viewBox="0 0 24 24"><path d="M21 8v13H3V8M1 3h22v5H1zM10 12h4"/></svg></span>
+            <h3>ROM 解压可续</h3>
+            <p>读取 ZIP 或已解压目录，自动检查磁盘空间，复用已有结果，中途关闭后从断点继续。</p>
+          </article>
+          <article class="feature reveal">
+            <span class="f-icon"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+            <h3>独立工具</h3>
+            <p>刷入 ID 补丁、Root 镜像（Magisk / KernelSU / APatch），以及配置启用的 Super 扩容与恢复。</p>
+          </article>
+          <article class="feature reveal">
+            <span class="f-icon"><svg viewBox="0 0 24 24"><path d="M10 7V3h4v4M7 7h10v6a5 5 0 0 1-10 0V7zM12 18v3"/></svg></span>
+            <h3>开箱即用</h3>
+            <p>内嵌 adb 与 fastboot；检测到手机已连接但缺少 Android USB 驱动时，可一键安装。</p>
+          </article>
+          <article class="feature reveal">
+            <span class="f-icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg></span>
+            <h3>完整日志</h3>
+            <p>记录设备命令、处理阶段和分区转换进度，遇到问题一键复制，或直接打开日志文件夹。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="page section dark" id="safety" data-page="安全">
+      <div class="container safety">
+        <div class="section-head reveal">
+          <span class="eyebrow">安全</span>
+          <h2>写入之前，先检查一遍</h2>
+          <p>刷机出错的代价很高。工具在每个关键节点都会停下来核对，不确定的事情一律拒绝执行。</p>
+        </div>
+        <ul class="checks reveal">
+          <li><span class="ck">✓</span><div><strong>机型匹配</strong><p>设备代号与刷机包不符时无法继续。</p></div></li>
+          <li><span class="ck">✓</span><div><strong>Super 容量预检</strong><p>容量不足时提示扩容，手机不会被写入任何内容。</p></div></li>
+          <li><span class="ck">✓</span><div><strong>防回滚检查</strong><p>拒绝刷入防回滚版本更低的系统，避免无法开机。</p></div></li>
+          <li><span class="ck">✓</span><div><strong>确认词</strong><p>完整线刷会清空数据，开始前需要输入 <code>WIPE</code>。</p></div></li>
+          <li><span class="ck">✓</span><div><strong>不锁 Bootloader</strong><p>拒绝执行任何锁定 Bootloader 的命令。</p></div></li>
+          <li><span class="ck">✓</span><div><strong>扩容先备份</strong><p>先备份 GPT，校验通过后才修改分区；恢复时核对磁盘与机型。</p></div></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="page section" id="packages" data-page="刷机包">
+      <div class="container">
+        <div class="section-head reveal">
+          <span class="eyebrow">刷机包</span>
+          <h2>两种包格式，同一套流程</h2>
+          <p>工具解析受支持的配置与脚本语句，不直接运行 BAT。未知语句、包外路径和锁定命令会导致处理失败。</p>
+        </div>
+        <div class="pkg-grid">
+          <article class="pkg reveal">
+            <header><span class="tag">flash_profile.toml</span><h3>FlashProfile 刷机包</h3></header>
+            <p>程序查找 <code>META-INF/com/android/flash_profile.toml</code>，据此确定设备匹配、镜像映射、操作选项与所需工具。</p>
+<pre class="tree">ROM/
+├── META-INF/com/android/<b>flash_profile.toml</b>
+├── images/
+└── tools/</pre>
+          </article>
+          <article class="pkg reveal">
+            <header><span class="tag">flash_all.bat</span><h3>小米官方线刷包</h3></header>
+            <p>选择包含 <code>flash_all.bat</code> 和 <code>images/</code> 的已解压目录，执行机型与防回滚检查、条件分支和刷写操作。</p>
+<pre class="tree">shennong_images_OS2.0…/
+├── <b>flash_all.bat</b>                  完整线刷
+├── <b>flash_all_except_storage.bat</b>   保留数据
+├── misc.txt
+└── images/</pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="page section alt page-last" id="download" data-page="下载">
+      <div class="container">
+        <div class="download reveal">
+          <div class="dl-main">
+            <span class="eyebrow">下载</span>
+            <h2>下载 Wrion FlashTool</h2>
+            <p class="dl-sub">单个 exe，双击即用。发布构建内嵌前端、platform-tools 和 USB 驱动资源。</p>
+            <div class="dl-actions">
+              <a class="btn primary xl" id="dl-btn" href="https://github.com/wwrrj/WrionFlashTool/releases/latest" target="_blank" rel="noopener">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.5 4.4v7.1H3zm0 13L10.5 19.6v-7.1H3zm8.5 1.2L21 21v-8.5h-9.5zm0-15.4v7.2H21V3z"/></svg>
+                <span>下载 Windows 版</span>
+              </a>
+              <a class="btn large" href="https://github.com/wwrrj/WrionFlashTool/releases" target="_blank" rel="noopener">全部版本</a>
+            </div>
+            <p class="dl-meta" id="dl-meta">v2.0.0 · Windows x64 · 可执行文件</p>
+            <div class="callout">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+              <span>完整线刷会清除数据。使用前请解锁 Bootloader、备份资料，并确认刷机包支持当前机型。</span>
+            </div>
+          </div>
+          <div class="dl-side">
+            <h3>运行要求</h3>
+            <ul class="req">
+              <li>Windows 10 或更高版本</li>
+              <li>WebView2 Runtime（Windows 11 已内置）</li>
+              <li>已解锁 Bootloader 的 Android 手机</li>
+              <li>质量可靠的 USB 数据线</li>
+            </ul>
+            <h3>从源码构建</h3>
+            <div class="code">
+              <button class="copy" type="button" data-copy="#build-cmds">复制</button>
+<pre id="build-cmds">git clone https://github.com/wwrrj/WrionFlashTool.git
+cd WrionFlashTool
+pnpm --dir frontend install --frozen-lockfile
+cargo install tauri-cli --version '^2' --locked
+./build.ps1</pre>
+            </div>
+            <p class="small-note">需要 Rust stable（MSVC）、Visual Studio 2022 Build Tools、Node.js 与 pnpm。</p>
+          </div>
+        </div>
+      </div>
+      <footer class="footer">
+        <div class="container footer-inner">
+          <div class="footer-brand">
+            <a class="logo" href="#top" aria-label="Wrion FlashTool"><span class="logo-mark inv">W</span><span>Wrion</span><span class="tool-chip inv"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>FlashTool</span></a>
+            <p>基于 Rust、Tauri 2、React 与 TypeScript 构建。</p>
+          </div>
+          <div class="footer-cols">
+            <div>
+              <span>项目</span>
+              <a href="https://github.com/wwrrj/WrionFlashTool" target="_blank" rel="noopener">源代码</a>
+              <a href="https://github.com/wwrrj/WrionFlashTool/releases" target="_blank" rel="noopener">版本发布</a>
+              <a href="https://github.com/wwrrj/WrionFlashTool/issues" target="_blank" rel="noopener">问题反馈</a>
+            </div>
+            <div>
+              <span>生态</span>
+              <a href="https://github.com/wwrrj/WrionTools" target="_blank" rel="noopener">WrionTools</a>
+              <a href="https://github.com/wwrrj/WrionSchemes" target="_blank" rel="noopener">WrionSchemes</a>
+            </div>
+          </div>
+        </div>
+        <div class="container footer-base">
+          <span>内嵌的 platform-tools 与 USB 驱动遵循其随附的许可声明。</span>
+          <button type="button" class="replay" id="replay">重播开场动画</button>
+        </div>
+      </footer>
+    </section>
+  </main>
+  <nav class="dots" id="dots" aria-label="页面"></nav>
+
+
+
+  <script src="main.js"></script>
+</body>
+</html>

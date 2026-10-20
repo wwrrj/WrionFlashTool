@@ -526,7 +526,7 @@ impl ExpandSession {
 
         self.mark("备份分区表");
         self.logger.write("正在导出 GPT 分区表…");
-        let remote_gpt = "/tmp/harusora-gpt-before.bin";
+        let remote_gpt = "/tmp/wrion-gpt-before.bin";
         self.adb_shell(
             &format!(
                 "{cmd} --backup={remote} {disk}",
@@ -658,7 +658,7 @@ impl ExpandSession {
         std::fs::create_dir_all(&self.profile.work_dir)?;
         std::fs::write(&local_gpt, &contents.gpt)?;
 
-        let remote_gpt = "/tmp/harusora-gpt-restore.bin";
+        let remote_gpt = "/tmp/wrion-gpt-restore.bin";
         self.adb_run(&["push", &local_gpt.display().to_string(), remote_gpt], false)?;
         let _ = std::fs::remove_file(&local_gpt);
 

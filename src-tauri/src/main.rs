@@ -21,10 +21,10 @@ fn ensure_cli_console() {
 fn ensure_cli_console() {}
 
 use std::path::PathBuf;
-use harusora_flash_tool_lib::config::{load_profile, resolve_profile_path};
-use harusora_flash_tool_lib::device::DeviceSession;
-use harusora_flash_tool_lib::flash::{execute_flash_pipeline, gather_environment};
-use harusora_flash_tool_lib::logger::Logger;
+use wrion_flash_tool_lib::config::{load_profile, resolve_profile_path};
+use wrion_flash_tool_lib::device::DeviceSession;
+use wrion_flash_tool_lib::flash::{execute_flash_pipeline, gather_environment};
+use wrion_flash_tool_lib::logger::Logger;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -37,7 +37,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("HarusoraFlashTool 2.0.0 (Rust + Tauri)");
+        println!("Wrion FlashTool 2.0.0 (Rust + Tauri)");
         return;
     }
 
@@ -95,7 +95,7 @@ fn main() {
         };
 
         let mut logger = Logger::new(None);
-        let _ = logger.start(&profile.logs_dir, "harusora-cli");
+        let _ = logger.start(&profile.logs_dir, "wrion-cli");
 
         if do_check {
             let mut session = DeviceSession::new(profile.fastboot(), profile.adb(), logger, false);
@@ -147,5 +147,5 @@ fn main() {
     }
 
     // Default to launching GUI
-    harusora_flash_tool_lib::run();
+    wrion_flash_tool_lib::run();
 }

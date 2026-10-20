@@ -102,7 +102,7 @@ pub fn status() -> DriverStatus {
 pub fn extract() -> Result<PathBuf> {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let key: usize = FILES.iter().map(|(_, d)| d.len()).sum();
-    let dir = base.join("HarusoraFlashTool").join(format!("usb-driver-{:x}", key));
+    let dir = base.join("WrionFlashTool").join(format!("usb-driver-{:x}", key));
     for (name, data) in FILES {
         let path = dir.join(name);
         if fs::metadata(&path).is_ok_and(|m| m.len() == data.len() as u64) {

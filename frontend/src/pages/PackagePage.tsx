@@ -109,7 +109,7 @@ export function PackagePage({ pkg, profile, profileError, onNext, onShowNotice }
             : <>
                 <UploadCloud size={32} />
                 <strong>把刷机包拖到这里</strong>
-                <small>支持 Harusora 刷机包（.zip 或已解压的文件夹），也支持小米官方线刷包文件夹（含 flash_all.bat）。</small>
+                <small>支持 FlashProfile 刷机包（含 flash_profile.toml，.zip 或已解压的文件夹），也支持小米官方线刷包文件夹（含 flash_all.bat）。</small>
                 <div className="dropzone-actions">
                   <button className="btn primary" onClick={() => void browseZip()}><FileArchive size={15} /> 选择 .zip 刷机包</button>
                   <button className="btn" onClick={() => void browseDir()}><Folder size={15} /> 选择已解压的文件夹</button>
@@ -132,7 +132,7 @@ export function PackagePage({ pkg, profile, profileError, onNext, onShowNotice }
   return (
     <PageFrame stepNo={1}
       title="选择刷机包"
-      description="选择 Harusora 刷机包（.zip 或已解压的文件夹），或小米官方线刷包文件夹。工具会自动识别并读取刷机配置。"
+      description="选择 FlashProfile 刷机包（.zip 或已解压的文件夹），或小米官方线刷包文件夹。工具会自动识别并读取刷机配置。"
       primary={showCurrent ? <button className="btn primary large" onClick={onNext}>下一步：连接手机 <ArrowRight size={17} /></button> : undefined}
     >
       {body}

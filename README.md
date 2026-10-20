@@ -2,7 +2,7 @@
 
 面向 Windows 的 Android 刷机工具，基于 Rust、Tauri 2、React 和 TypeScript 构建。
 
-WrionFlashTool 读取 ROM 包中的刷机配置，组织设备检查、分区写入与日志记录。支持配置驱动的 ROM 包和小米官方线刷目录，并提供 ID 补丁、Root 镜像及动态分区处理入口。
+WrionFlashTool 读取 ROM 包中的刷机配置，组织设备检查、分区写入与日志记录。支持 FlashProfile 刷机包（配置驱动）和小米官方线刷目录，并提供 ID 补丁、Root 镜像及动态分区处理入口。
 
 ## 功能
 
@@ -24,7 +24,7 @@ WrionFlashTool 读取 ROM 包中的刷机配置，组织设备检查、分区写
 
 刷入完成后的自动重启以界面选项为准。ID 补丁和 Super 扩容也可从独立工具入口操作；未由当前配置启用的功能不会提供执行入口。
 
-### 配置驱动的 ROM 包
+### FlashProfile 刷机包
 
 程序查找 `META-INF/com/android/flash_profile.toml`，据此确定设备匹配、镜像映射、操作选项与所需工具。也可将程序放在已解压的 ROM 根目录运行。
 

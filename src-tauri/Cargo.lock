@@ -1442,7 +1442,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "harusora_flash_tool"
+name = "wrion_flash_tool"
 version = "2.0.0"
 dependencies = [
  "anyhow",

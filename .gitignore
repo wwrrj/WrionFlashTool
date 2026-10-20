@@ -26,3 +26,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+
+# Website: embedded app build (website/build.ps1)
+website/app/

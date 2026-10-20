@@ -62,8 +62,8 @@ export interface FlashProfile {
   enable_root_menu: boolean;
   post_flash_id: boolean;
   expansion?: ExpansionConfig;
-  /** harusora：flash_profile.toml 驱动的刷机包；official：小米官方线刷包（按 flash_all 脚本刷入）。 */
-  kind: 'harusora' | 'official';
+  /** profile：FlashProfile 刷机包（flash_profile.toml 驱动）；official：小米官方线刷包（按 flash_all 脚本刷入）。 */
+  kind: 'profile' | 'official';
   official?: OfficialInfo | null;
 }
 

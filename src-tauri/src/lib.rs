@@ -43,5 +43,5 @@ pub fn run() {
             commands::open_folder_cmd,
         ])
         .run(tauri::generate_context!())
-        .expect("运行 HarusoraFlashTool 发生错误");
+        .expect("运行 Wrion FlashTool 发生错误");
 }

@@ -1,12 +1,12 @@
 [package]
-name = "harusora_flash_tool"
+name = "wrion_flash_tool"
 version = "2.0.0"
-description = "Harusora 团队配置驱动的 Android fastboot 刷机工具 (Tauri v2 + Rust)"
-authors = ["Harusora Team"]
+description = "Wrion FlashTool：配置驱动的 Android fastboot 刷机工具 (Tauri v2 + Rust)"
+authors = ["Wrion Team"]
 edition = "2021"
 
 [lib]
-name = "harusora_flash_tool_lib"
+name = "wrion_flash_tool_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

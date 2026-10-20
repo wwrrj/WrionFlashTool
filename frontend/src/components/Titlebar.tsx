@@ -1,4 +1,4 @@
-import { Minus, Square, X } from 'lucide-react';
+import { Minus, Square, X, Zap } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '../lib/api';
@@ -17,8 +17,9 @@ export function Titlebar({ busy }: { busy: boolean }) {
   return (
     <header className="titlebar">
       <div className="titlebar-drag" onMouseDown={(e) => { if (e.button === 0) void win()?.startDragging(); }}>
-        <span className="brand-mark">H</span>
-        <strong>Harusora FlashTool</strong>
+        <span className="brand-mark">W</span>
+        <strong>Wrion</strong>
+        <span className="brand-tool"><Zap size={10} strokeWidth={2.8} />FlashTool</span>
         <small>v2.0</small>
       </div>
       <div className="titlebar-actions">

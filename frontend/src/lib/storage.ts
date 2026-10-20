@@ -4,11 +4,13 @@ const read = (key: string) => {
 const write = (key: string, value: string) => {
   try { localStorage.setItem(key, value); } catch { /* 本机存储不可用时忽略 */ }
 };
+/** 先读新键，没有时读改名前（harusora.*）留下的旧键。 */
+const readWithLegacy = (key: string) => read(`wrion.${key}`) ?? read(`harusora.${key}`);
 
 export const storage = {
-  agreed: () => read('harusora.usage-agreed') === 'yes',
-  setAgreed: () => write('harusora.usage-agreed', 'yes'),
+  agreed: () => readWithLegacy('usage-agreed') === 'yes',
+  setAgreed: () => write('wrion.usage-agreed', 'yes'),
   /** 上次使用的刷机包：.zip 文件或已解压的目录。 */
-  lastPackage: () => read('harusora.last-package') ?? read('harusora.last-zip'),
-  setLastPackage: (path: string) => write('harusora.last-package', path),
+  lastPackage: () => readWithLegacy('last-package') ?? read('harusora.last-zip'),
+  setLastPackage: (path: string) => write('wrion.last-package', path),
 };

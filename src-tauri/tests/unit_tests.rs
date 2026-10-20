@@ -1,15 +1,15 @@
 use tempfile::tempdir;
-use harusora_flash_tool_lib::config::load_profile;
-use harusora_flash_tool_lib::flash::{is_overflow_flash_error, logical_flash_size, needs_logical_resize};
-use harusora_flash_tool_lib::package::is_preserved_data_partition;
-use harusora_flash_tool_lib::sdat2img::{parse_ranges, sdat2img};
-use harusora_flash_tool_lib::sparse::{
+use wrion_flash_tool_lib::config::load_profile;
+use wrion_flash_tool_lib::flash::{is_overflow_flash_error, logical_flash_size, needs_logical_resize};
+use wrion_flash_tool_lib::package::is_preserved_data_partition;
+use wrion_flash_tool_lib::sdat2img::{parse_ranges, sdat2img};
+use wrion_flash_tool_lib::sparse::{
     build_android_sparse_from_raw, build_wipe_super_image, extract_sparse_prefix,
 };
 
 const TEST_PROFILE: &str = r#"
 [package]
-author = "Harusora Team"
+author = "Wrion Team"
 qq_group = "123456"
 build_date = "2026-08-20"
 
@@ -48,7 +48,7 @@ fn test_config_load_and_fields() {
     std::fs::write(&profile_p, TEST_PROFILE).unwrap();
 
     let profile = load_profile(root, &profile_p).unwrap();
-    assert_eq!(profile.author, "Harusora Team");
+    assert_eq!(profile.author, "Wrion Team");
     assert_eq!(profile.qq_group, "123456");
     assert_eq!(profile.build_date, "2026-08-20");
     assert_eq!(profile.codenames, vec!["shennong"]);
@@ -186,7 +186,7 @@ fn write_rom_zip(path: &std::path::Path, prefix: &str) {
 
 #[test]
 fn test_rom_zip_inspect_and_extract() {
-    use harusora_flash_tool_lib::rompkg::{default_dest, extract_package, inspect_package};
+    use wrion_flash_tool_lib::rompkg::{default_dest, extract_package, inspect_package};
     let dir = tempdir().unwrap();
     for prefix in ["", "Wrapped/"] {
         let zip_path = dir.path().join(format!("rom{}.zip", prefix.len()));
@@ -210,7 +210,7 @@ fn test_rom_zip_inspect_and_extract() {
 
 #[test]
 fn test_rom_zip_rejects_foreign_dir_and_non_rom() {
-    use harusora_flash_tool_lib::rompkg::{extract_package, inspect_package};
+    use wrion_flash_tool_lib::rompkg::{extract_package, inspect_package};
     let dir = tempdir().unwrap();
     let zip_path = dir.path().join("rom.zip");
     write_rom_zip(&zip_path, "");
@@ -228,8 +228,8 @@ fn test_rom_zip_rejects_foreign_dir_and_non_rom() {
     assert!(inspect_package(&other).is_err());
 }
 
-fn test_expansion_cfg(backup_dir: &std::path::Path) -> harusora_flash_tool_lib::config::ExpansionConfig {
-    harusora_flash_tool_lib::config::ExpansionConfig {
+fn test_expansion_cfg(backup_dir: &std::path::Path) -> wrion_flash_tool_lib::config::ExpansionConfig {
+    wrion_flash_tool_lib::config::ExpansionConfig {
         enabled: true,
         codenames: vec!["alpha".into()],
         target_bytes: 1 << 30,
@@ -254,7 +254,7 @@ fn fake_gpt() -> Vec<u8> {
 
 #[test]
 fn test_gpt_backup_zip_roundtrip_and_listing() {
-    use harusora_flash_tool_lib::backup::{inspect_backup, list_backups, read_backup, write_backup_zip};
+    use wrion_flash_tool_lib::backup::{inspect_backup, list_backups, read_backup, write_backup_zip};
     let dir = tempdir().unwrap();
     let cfg = test_expansion_cfg(dir.path());
 
@@ -285,7 +285,7 @@ fn test_gpt_backup_zip_roundtrip_and_listing() {
 
 #[test]
 fn test_gpt_backup_rejects_mismatch() {
-    use harusora_flash_tool_lib::backup::{inspect_backup, write_backup_zip};
+    use wrion_flash_tool_lib::backup::{inspect_backup, write_backup_zip};
     let dir = tempdir().unwrap();
     let cfg = test_expansion_cfg(dir.path());
 
@@ -312,7 +312,7 @@ fn official_fixture(device: &str, name: &str) -> String {
 
 #[test]
 fn test_official_flash_all_parses_to_whitelisted_ops() {
-    use harusora_flash_tool_lib::official::{flatten, parse_bat, touches_user_data, ScriptOp};
+    use wrion_flash_tool_lib::official::{flatten, parse_bat, touches_user_data, ScriptOp};
     let root = std::path::Path::new("R:/pkg");
     let ops = parse_bat(&official_fixture("shennong", "flash_all.bat"), root).unwrap();
 
@@ -338,7 +338,7 @@ fn test_official_flash_all_parses_to_whitelisted_ops() {
 
 #[test]
 fn test_official_keep_data_script_and_lock_refusal() {
-    use harusora_flash_tool_lib::official::{parse_bat, touches_user_data};
+    use wrion_flash_tool_lib::official::{parse_bat, touches_user_data};
     let root = std::path::Path::new("R:/pkg");
     for device in ["shennong", "houji"] {
         let keep = parse_bat(&official_fixture(device, "flash_all_except_storage.bat"), root).unwrap();
@@ -350,7 +350,7 @@ fn test_official_keep_data_script_and_lock_refusal() {
 
 #[test]
 fn test_official_parser_rejects_unknown_and_unsafe_lines() {
-    use harusora_flash_tool_lib::official::parse_bat;
+    use wrion_flash_tool_lib::official::parse_bat;
     let root = std::path::Path::new("R:/pkg");
     let base = "fastboot %* getvar product 2>&1 | findstr /r /c:\"^product: *alpha\" || exit /B 1\n";
     let cases = [
@@ -372,7 +372,7 @@ fn test_official_parser_rejects_unknown_and_unsafe_lines() {
 
 #[test]
 fn test_official_package_loads_as_profile() {
-    use harusora_flash_tool_lib::official::{flatten, load_official, parse_bat, ScriptOp};
+    use wrion_flash_tool_lib::official::{flatten, load_official, parse_bat, ScriptOp};
     let dir = tempdir().unwrap();
     let root = dir.path();
     std::fs::create_dir(root.join("images")).unwrap();
@@ -406,7 +406,7 @@ fn test_official_package_loads_as_profile() {
 
 #[test]
 fn test_embedded_platform_tools_are_complete() {
-    let dir = harusora_flash_tool_lib::platform_tools::tools_dir().unwrap();
+    let dir = wrion_flash_tool_lib::platform_tools::tools_dir().unwrap();
     // fastboot -w 需要同目录的 make_f2fs / mke2fs 生成 userdata 镜像
     for name in ["fastboot.exe", "adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll", "make_f2fs.exe", "mke2fs.exe", "mke2fs.conf"] {
         assert!(dir.join(name).is_file(), "缺少 {name}：{dir:?}");
@@ -415,7 +415,7 @@ fn test_embedded_platform_tools_are_complete() {
 
 #[test]
 fn test_usb_driver_extracts_signed_package_intact() {
-    use harusora_flash_tool_lib::usb_driver::extract;
+    use wrion_flash_tool_lib::usb_driver::extract;
     let inf = extract().unwrap();
     let dir = inf.parent().unwrap();
     for name in ["android_winusb.inf", "android_winusb.cat", "amd64/WdfCoInstaller01009.dll", "amd64/winusbcoinstaller2.dll"] {

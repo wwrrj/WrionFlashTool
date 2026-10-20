@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { api, isTauri } from '../lib/api';
+import { api, isTauri, onPreview } from '../lib/api';
 import { errorMessage } from '../lib/format';
 import { storage } from '../lib/storage';
 import type { ExtractProgressEvent, PackageInfo } from '../types';
@@ -88,7 +88,8 @@ export function useRomPackage(enabled: boolean, onActivated: (root: string) => v
   const reset = useCallback(() => { setPhase('idle'); setInfo(null); setError(null); }, []);
 
   useEffect(() => {
-    if (!enabled || !isTauri()) return;
+    if (!enabled) return;
+    if (!isTauri()) return onPreview<ExtractProgressEvent>('extract_progress', setProgress);
     const subs = [
       listen<ExtractProgressEvent>('extract_progress', (e) => setProgress(e.payload)),
       getCurrentWebview().onDragDropEvent((e) => {

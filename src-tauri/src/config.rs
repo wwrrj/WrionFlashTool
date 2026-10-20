@@ -81,10 +81,10 @@ pub struct FlashProfile {
 
     pub expansion: Option<ExpansionConfig>,
 
-    /// "harusora"（flash_profile.toml 驱动的刷机包）或 "official"（小米官方线刷包）。
+    /// "profile"（flash_profile.toml 驱动的刷机包）或 "official"（小米官方线刷包）。
     #[serde(default = "default_kind")]
     pub kind: String,
-    /// 官方线刷包的附加信息；Harusora 刷机包为空。
+    /// 官方线刷包的附加信息；FlashProfile 刷机包为空。
     #[serde(default)]
     pub official: Option<crate::official::OfficialInfo>,
     /// 指定时 fastboot / adb 直接取自这个目录（内置的完整 platform-tools）；为空时用刷机包 tools/platform-tools。
@@ -93,7 +93,7 @@ pub struct FlashProfile {
 }
 
 fn default_kind() -> String {
-    "harusora".to_string()
+    "profile".to_string()
 }
 
 impl FlashProfile {
@@ -316,7 +316,7 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
     }
 
     let display_name = device.get("display_name").and_then(|v| v.as_str())
-        .unwrap_or("HarusoraFlashTool").trim().to_string();
+        .unwrap_or("Wrion FlashTool").trim().to_string();
 
     let mut notes = Vec::new();
     if let Some(arr) = device.get("notes").and_then(|v| v.as_array()) {
@@ -561,7 +561,7 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
             }
 
             let remote_sgdisk_dir = validate_device_path(
-                exp_tbl.get("remote_sgdisk_dir").and_then(|v| v.as_str()).unwrap_or("/tmp/harusora-sgdisk").trim(),
+                exp_tbl.get("remote_sgdisk_dir").and_then(|v| v.as_str()).unwrap_or("/tmp/wrion-sgdisk").trim(),
                 "[expansion].remote_sgdisk_dir",
             )?;
 

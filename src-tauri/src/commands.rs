@@ -67,7 +67,7 @@ pub async fn use_rom_dir_cmd(dir: String) -> Result<String, String> {
         })
         .or_else(|| official::find_official_root(&picked))
         .ok_or_else(|| format!(
-            "这个文件夹里没有找到刷机配置。\n请选择 Harusora 刷机包解压后的根目录（含 {}），或小米官方线刷包的目录（含 flash_all.bat 和 images）。",
+            "这个文件夹里没有找到刷机配置。\n请选择 FlashProfile 刷机包解压后的根目录（含 {}），或小米官方线刷包的目录（含 flash_all.bat 和 images）。",
             crate::config::DEFAULT_PROFILE_REL.replace('/', "\\")
         ))?;
     activate_dir(root)
@@ -216,7 +216,7 @@ pub async fn run_diagnostics_cmd(
 ) -> Result<EnvReport, String> {
     let profile = get_active_profile(rom_root.as_deref(), None)?;
     let mut logger = Logger::new(Some(app));
-    let _ = logger.start(&profile.logs_dir, "harusora-diag");
+    let _ = logger.start(&profile.logs_dir, "wrion-diag");
     let mut session = DeviceSession::new(profile.fastboot(), profile.adb(), logger, false);
     session.serial = chosen_serial;
 
@@ -269,7 +269,7 @@ pub async fn run_flash_cmd(
     }
 
     let mut logger = Logger::new(Some(app.clone()));
-    let prefix = if preserve_data { "harusora-update" } else { "harusora-flash" };
+    let prefix = if preserve_data { "wrion-update" } else { "wrion-flash" };
     let log_path = logger.start(&profile.logs_dir, prefix).map_err(|e| e.to_string())?;
 
     let mut session = DeviceSession::new(profile.fastboot(), profile.adb(), logger, false);
@@ -305,7 +305,7 @@ pub async fn run_root_flash_cmd(
     }
     let profile = get_active_profile(rom_root.as_deref(), None)?;
     let mut logger = Logger::new(Some(app));
-    let log_path = logger.start(&profile.logs_dir, "harusora-root").map_err(|e| e.to_string())?;
+    let log_path = logger.start(&profile.logs_dir, "wrion-root").map_err(|e| e.to_string())?;
 
     let mut session = DeviceSession::new(profile.fastboot(), profile.adb(), logger, false);
     session.serial = chosen_serial;
@@ -353,7 +353,7 @@ pub async fn run_id_flash_cmd(
     }
     let profile = get_active_profile(rom_root.as_deref(), None)?;
     let mut logger = Logger::new(Some(app));
-    let log_path = logger.start(&profile.logs_dir, "harusora-id").map_err(|e| e.to_string())?;
+    let log_path = logger.start(&profile.logs_dir, "wrion-id").map_err(|e| e.to_string())?;
 
     let mut session = DeviceSession::new(profile.fastboot(), profile.adb(), logger, false);
     session.serial = chosen_serial;
@@ -405,7 +405,7 @@ pub async fn apply_expand_cmd(
     }
 
     let mut logger = Logger::new(Some(app));
-    let _ = logger.start(&profile.logs_dir, "harusora-expand").map_err(|e| e.to_string())?;
+    let _ = logger.start(&profile.logs_dir, "wrion-expand").map_err(|e| e.to_string())?;
     let mut session = ExpandSession::new(profile, logger).map_err(|e| e.to_string())?;
 
     let backup_dir = tokio::task::spawn_blocking(move || {
@@ -462,7 +462,7 @@ pub async fn restore_backup_cmd(
     }
 
     let mut logger = Logger::new(Some(app));
-    let _ = logger.start(&profile.logs_dir, "harusora-restore").map_err(|e| e.to_string())?;
+    let _ = logger.start(&profile.logs_dir, "wrion-restore").map_err(|e| e.to_string())?;
     let mut session = ExpandSession::new(profile, logger).map_err(|e| e.to_string())?;
     let b_path = PathBuf::from(backup_path);
 
