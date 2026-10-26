@@ -1,6 +1,6 @@
 # 部署展示页到自己的服务器（使用 SSH 密钥登录，不会询问密码）
-#   ./website/deploy.ps1 -Server azureuser@40.83.77.55
-#   ./website/deploy.ps1 -Server azureuser@40.83.77.55 -Https -Email you@example.com   # 首次签发 HTTPS 证书
+#   ./website/deploy.ps1 -Server wwrrj@40.83.77.55
+#   ./website/deploy.ps1 -Server wwrrj@40.83.77.55 -Https -Email you@example.com   # 首次签发 HTTPS 证书
 param(
     [Parameter(Mandatory = $true)][string]$Server,
     [string]$Domain = "flash.wwrrj.cn",

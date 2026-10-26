@@ -1,9 +1,20 @@
 {
-  "version": "2.0.0",
-  "date": "2026-10-20",
-  "notes": [],
-  "download_url": "https://1815751734.share.123pan.cn/123pan/aVuzVv-vCBHH",
+  "version": "2.1.0",
+  "date": "2026-10-26",
+  "notes": [
+    "小米 14 / 14 Pro 默认开启 16G Super 扩容，刷机包没写扩容配置也能用",
+    "内置 sgdisk，刷机包没带分区工具也能扩容",
+    "ID 补丁选项默认开启",
+    "新增启动时检查更新"
+  ],
+  "download_url": "https://1815751734.share.123pan.cn/123pan/aVuzVv-FQ6hH?pwd=wrrj",
   "download_label": "123 云盘",
   "min_version": "",
-  "files": []
+  "files": [
+    {
+      "name": "WrionFlashTool.exe",
+      "label": "Windows x64",
+      "sha256": "7a2747694ed21dacea3ddd347457dc6318f3eb2e5ba0c6ab19f2a6c0c977d741"
+    }
+  ]
 }

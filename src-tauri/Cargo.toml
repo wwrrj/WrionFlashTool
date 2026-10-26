@@ -1,6 +1,6 @@
 [package]
 name = "wrion_flash_tool"
-version = "2.0.0"
+version = "2.1.0"
 description = "Wrion FlashTool：配置驱动的 Android fastboot 刷机工具 (Tauri v2 + Rust)"
 authors = ["Wrion Team"]
 edition = "2021"
