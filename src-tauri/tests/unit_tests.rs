@@ -60,6 +60,34 @@ fn test_config_load_and_fields() {
 }
 
 #[test]
+fn test_config_builtin_expansion_and_id_defaults() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    let profile_p = root.join("flash_profile.toml");
+    // 没有 [expansion]、也没写 post_flash_id 的 shennong 包
+    let content = TEST_PROFILE.replace("post_flash_id = false\n", "");
+    std::fs::write(&profile_p, content).unwrap();
+
+    let profile = load_profile(root, &profile_p).unwrap();
+    assert!(profile.post_flash_id);
+    let exp = profile.expansion.expect("shennong 应默认启用扩容");
+    assert_eq!(exp.target_bytes, 16 * 1024 * 1024 * 1024);
+    assert_eq!(exp.disk, "/dev/block/sda");
+    assert_eq!((exp.super_part, exp.userdata_part), (32, 33));
+    assert_eq!(exp.codenames, vec!["shennong"]);
+
+    // enabled = false 对内置机型同样无效
+    let content = format!("{}\n[expansion]\nenabled = false\n", TEST_PROFILE);
+    std::fs::write(&profile_p, content).unwrap();
+    assert!(load_profile(root, &profile_p).unwrap().expansion.is_some());
+
+    // 非内置机型没有 [expansion] 时不启用
+    let content = TEST_PROFILE.replace("codenames = [\"shennong\"]", "codenames = [\"aurora\"]");
+    std::fs::write(&profile_p, content).unwrap();
+    assert!(load_profile(root, &profile_p).unwrap().expansion.is_none());
+}
+
+#[test]
 fn test_config_dat_only_wipe_super() {
     let dir = tempdir().unwrap();
     let root = dir.path();
@@ -427,4 +455,35 @@ fn test_usb_driver_extracts_signed_package_intact() {
     let text = String::from_utf8_lossy(&text);
     assert!(text.contains(r"USB\Class_FF&SubClass_42&Prot_01"));
     assert!(text.contains(r"USB\Class_FF&SubClass_42&Prot_03"));
+}
+
+#[test]
+fn test_update_version_compare() {
+    use wrion_flash_tool_lib::update::{evaluate, parse_version, Manifest};
+
+    assert_eq!(parse_version("2.10.3"), Some((2, 10, 3)));
+    assert_eq!(parse_version("v2.0.0"), Some((2, 0, 0)));
+    assert_eq!(parse_version("2.0"), None);
+    assert_eq!(parse_version("2.0.0.1"), None);
+    assert_eq!(parse_version(""), None);
+
+    let manifest = |version: &str, min: &str, url: &str| Manifest {
+        version: version.into(),
+        date: "2026-10-27".into(),
+        notes: vec!["新功能".into()],
+        download_url: url.into(),
+        min_version: min.into(),
+    };
+    let url = "https://example.123pan.cn/s/abc";
+
+    let info = evaluate(manifest("2.10.0", "", url), "2.9.0").unwrap();
+    assert!(info.available && !info.required);
+    let info = evaluate(manifest("2.0.0", "", url), "2.0.0").unwrap();
+    assert!(!info.available);
+    let info = evaluate(manifest("2.1.0", "2.1.0", url), "2.0.0").unwrap();
+    assert!(info.available && info.required);
+    let info = evaluate(manifest("2.1.0", "2.0.0", url), "2.0.0").unwrap();
+    assert!(!info.required);
+    assert!(evaluate(manifest("2.1.0", "", "http://example.com"), "2.0.0").is_err());
+    assert!(evaluate(manifest("latest", "", url), "2.0.0").is_err());
 }

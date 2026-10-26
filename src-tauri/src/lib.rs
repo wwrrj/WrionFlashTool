@@ -12,6 +12,7 @@ pub mod rompkg;
 pub mod backup;
 pub mod official;
 pub mod platform_tools;
+pub mod update;
 pub mod usb_driver;
 pub mod commands;
 
@@ -41,6 +42,8 @@ pub fn run() {
             commands::restore_backup_cmd,
             commands::clean_work_dir_cmd,
             commands::open_folder_cmd,
+            commands::check_update_cmd,
+            commands::open_download_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Wrion FlashTool 发生错误");

@@ -314,13 +314,16 @@ impl ExpandSession {
             return Ok(());
         }
 
-        let local_sgdisk = self.cfg.sgdisk_dir.join("sgdisk");
-        if !local_sgdisk.is_file() {
-            bail!(
-                "Recovery 无内置 sgdisk，且未找到本地 bundled sgdisk: {:?}",
-                local_sgdisk
-            );
-        }
+        // 刷机包没带 sgdisk 时改用工具内置的一份
+        let sgdisk_dir = if self.cfg.sgdisk_dir.join("sgdisk").is_file() {
+            self.cfg.sgdisk_dir.clone()
+        } else {
+            let dir = crate::platform_tools::sgdisk_dir().map_err(|e| {
+                anyhow!("Recovery 无内置 sgdisk，刷机包也未提供，且释放内置 sgdisk 失败：{}", e)
+            })?;
+            self.logger.write("刷机包未提供 sgdisk，使用工具内置版本");
+            dir
+        };
 
         self.logger.write(&format!(
             "正在推送 sgdisk 到设备：{}",
@@ -329,7 +332,7 @@ impl ExpandSession {
         let _ = self.adb_shell(&format!("mkdir -p {}", self.cfg.remote_sgdisk_dir), true);
 
         // Push files from sgdisk_dir
-        if let Ok(entries) = std::fs::read_dir(&self.cfg.sgdisk_dir) {
+        if let Ok(entries) = std::fs::read_dir(&sgdisk_dir) {
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.is_file() {

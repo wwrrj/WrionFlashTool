@@ -141,6 +141,23 @@ impl FlashProfile {
 
 pub const DEFAULT_PROFILE_REL: &str = "META-INF/com/android/flash_profile.toml";
 
+/// 内置扩容默认值：(机型代号, super 目标字节数)。
+/// 这些机型的 super / userdata 都是 /dev/block/sda 的第 32 / 33 分区（与 [expansion] 的默认值一致），
+/// 刷机包没有写 [expansion] 时也提供扩容到 16 GiB。
+const BUILTIN_EXPANSION: &[(&str, u64)] = &[
+    ("houji", 16 * 1024 * 1024 * 1024),
+    ("houjiin", 16 * 1024 * 1024 * 1024),
+    ("shennong", 16 * 1024 * 1024 * 1024),
+    ("shennongpro", 16 * 1024 * 1024 * 1024),
+];
+
+fn builtin_expansion_target(codenames: &[String]) -> Option<u64> {
+    BUILTIN_EXPANSION
+        .iter()
+        .find(|(name, _)| codenames.iter().any(|c| c == name))
+        .map(|(_, target)| *target)
+}
+
 fn validate_name(value: &str, ctx: &str) -> Result<String> {
     let re = Regex::new(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$").unwrap();
     if !re.is_match(value) {
@@ -504,11 +521,15 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
     let update_confirmation_word = options.and_then(|o| o.get("update_confirmation_word")).and_then(|v| v.as_str()).unwrap_or("UPDATE").trim().to_string();
     let reboot_after_success = opt_bool("reboot_after_success", true)?;
     let enable_root_menu = opt_bool("enable_root_menu", true)?;
-    let post_flash_id = opt_bool("post_flash_id", false)?;
+    let post_flash_id = opt_bool("post_flash_id", true)?;
 
-    // Parse expansion
-    let expansion_cfg = if let Some(exp_tbl) = expansion {
-        let enabled = exp_tbl.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
+    // Parse expansion：内置默认机型即使没写 [expansion]（或写了 enabled = false）也启用
+    let builtin_target = builtin_expansion_target(&codenames);
+    let empty_tbl = toml::value::Table::new();
+    let expansion_cfg = {
+        let exp_tbl = expansion.unwrap_or(&empty_tbl);
+        let enabled = builtin_target.is_some()
+            || (expansion.is_some() && exp_tbl.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true));
         if enabled {
             let exp_codes = if let Some(c_arr) = exp_tbl.get("codenames").and_then(|v| v.as_array()) {
                 let mut list = Vec::new();
@@ -521,7 +542,8 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
                 codenames.clone()
             };
 
-            let target = exp_tbl.get("target_bytes").and_then(|v| v.as_integer()).unwrap_or(min_super);
+            let target = exp_tbl.get("target_bytes").and_then(|v| v.as_integer())
+                .unwrap_or_else(|| builtin_target.map_or(min_super, |t| t as i64));
             if target <= 0 {
                 bail!("[expansion].target_bytes 必须为正整数");
             }
@@ -584,8 +606,6 @@ pub fn load_profile(rom_root: &Path, profile_path: &Path) -> Result<FlashProfile
         } else {
             None
         }
-    } else {
-        None
     };
 
     Ok(FlashProfile {

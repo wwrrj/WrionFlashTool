@@ -12,6 +12,7 @@ use crate::rootflash::flash_root_image;
 use crate::backup::{self, BackupInfo};
 use crate::config::find_rom_root;
 use crate::official;
+use crate::update;
 use crate::usb_driver;
 use crate::rompkg::{self, PackageInfo};
 use tauri::Emitter;
@@ -513,4 +514,21 @@ pub async fn open_folder_cmd(path: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[command]
+pub async fn check_update_cmd() -> Result<update::UpdateInfo, String> {
+    tokio::task::spawn_blocking(update::check)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{:#}", e))
+}
+
+/// 在默认浏览器打开新版本下载页；只接受 https 链接。
+#[command]
+pub async fn open_download_cmd(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") {
+        return Err("下载链接必须是 https 地址".to_string());
+    }
+    tauri_plugin_opener::open_url(&url, None::<&str>).map_err(|e| e.to_string())
 }

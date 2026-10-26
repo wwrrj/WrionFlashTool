@@ -23,7 +23,7 @@
       text: '手机已经插上，但电脑没有 Android USB 驱动时，页面会直接给出一键安装入口。' },
     { label: '选择方式', icon: 'sliders', colors: ['#a78bfa', '#7c3aed'], src: '?preview=ready&step=plan', title: '选择刷入方式',
       text: '完整线刷或保留数据更新。展开高级选项，可以换用外部 ID 补丁、刷入 Root 镜像或打开扩容工具。' },
-    { label: '刷入中', icon: 'zap', colors: ['#fbbf24', '#ea580c'], src: '?preview=ready&step=plan', auto: 'flash', title: '开始刷入',
+    { label: '刷入中', icon: 'zap', colors: ['#fbbf24', '#ea580c'], src: '?preview=ready&step=plan', thumb: '?preview=ready&step=review', auto: 'flash', title: '开始刷入',
       text: '自动演示一次“保留数据更新”：预检通过后依次写入固件、启动链和系统分区，分区进度与日志实时更新，最后进入完成页。' },
     { label: 'Super 扩容', icon: 'drive', colors: ['#f472b6', '#db2777'], src: '?preview=ready&step=expand', title: 'Super 扩容 / 恢复',
       text: 'Super 容量不足时扩大分区。扩容前备份 GPT 并校验，之后才修改分区；也可以用备份恢复官方分区表。' },
@@ -58,6 +58,10 @@
   const win = $('#window');
   const loading = $('#window-loading');
   const app = (tour) => `app/index.html${tour.src}`;
+  const thumbApp = (tour) => `app/index.html${tour.thumb || tour.src}`;
+  // 界面区快进入视野时才开始加载：每个缩略图都是一份完整运行的界面，首屏不必等它们
+  let live = false;
+  let pendingSrc = '';
   let tourToken = 0;
   let current = -1;
 
@@ -69,7 +73,7 @@
     b.className = 'thumb';
     b.type = 'button';
     b.setAttribute('aria-label', `切换到：${tour.label}`);
-    b.innerHTML = `<span class="thumb-screen"><iframe tabindex="-1" aria-hidden="true" loading="lazy" src="${app(tour)}"></iframe></span>${appIcon(tour)}<span class="thumb-tip"></span>`;
+    b.innerHTML = `<span class="thumb-screen"><iframe tabindex="-1" aria-hidden="true" data-src="${thumbApp(tour)}"></iframe></span>${appIcon(tour)}<span class="thumb-tip"></span>`;
     b.querySelector('.thumb-tip').textContent = tour.label;
     b.addEventListener('click', () => selectTour(i, b.querySelector('.thumb-screen')));
     li.appendChild(b);
@@ -110,7 +114,8 @@
       setTimeout(() => token === tourToken && loading.classList.remove('on'), 120);
       if (tour.auto === 'flash') void autoFlash(token);
     };
-    frame.src = app(tour);
+    if (live) frame.src = app(tour);
+    else pendingSrc = app(tour);
   }
 
   /** 在 iframe 里等待某个元素出现（同源页面）。 */
@@ -195,6 +200,25 @@
   setTimeout(markStrip, 600);
   selectTour(1);
 
+  // 当前显示在大窗口里的界面，左侧那份缩略图是隐藏的，等它回到左侧时再加载
+  const loadThumbs = () => {
+    items.forEach((li, i) => {
+      const f = li.querySelector('iframe');
+      if (i !== current && f.dataset.src && !f.getAttribute('src')) f.src = f.dataset.src;
+    });
+  };
+  const goLive = () => {
+    if (live) return;
+    live = true;
+    if (pendingSrc) frame.src = pendingSrc;
+    loadThumbs();
+  };
+  new IntersectionObserver((entries, obs) => {
+    if (entries.some((e) => e.isIntersecting)) { goLive(); obs.disconnect(); }
+  }, { rootMargin: '100% 0px' }).observe(tourEl);
+  strip.addEventListener('click', () => setTimeout(loadThumbs, 700));
+
+
   /* ================= 页面细节 ================= */
 
   const nav = $('#nav');
@@ -248,30 +272,41 @@
     setTimeout(() => { btn.textContent = '复制'; }, 1500);
   }));
 
+  // 最新版本信息（由 release.ps1 生成 version.json，工具内的检查更新读取同一个文件）
+  fetch('version.json', { cache: 'no-cache' })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((rel) => {
+      if (!rel) return;
+      if (/^https:\/\//.test(rel.download_url || '')) $('#dl-btn').href = rel.download_url;
+      if (rel.version) {
+        const meta = [`v${rel.version}`, 'Windows x64', rel.download_label || '123 云盘'];
+        if (rel.date) meta.splice(1, 0, rel.date);
+        $('#dl-meta').textContent = meta.join(' · ');
+      }
+      if (!Array.isArray(rel.files) || !rel.files.length) return;
+      const list = $('#dl-hashes');
+      list.innerHTML = '';
+      rel.files.forEach((f) => {
+        const li = document.createElement('li');
+        li.innerHTML = '<span class="hash-name"></span><code class="hash"></code><button type="button" class="hash-copy">复制</button>';
+        li.querySelector('.hash-name').textContent = `${f.label || f.name} · ${f.name}`;
+        li.querySelector('.hash').textContent = f.sha256;
+        li.querySelector('.hash-copy').addEventListener('click', async (e) => {
+          const btn = e.currentTarget;
+          try { await navigator.clipboard.writeText(f.sha256); btn.textContent = '已复制'; } catch { btn.textContent = '复制失败'; }
+          setTimeout(() => { btn.textContent = '复制'; }, 1500);
+        });
+        list.appendChild(li);
+      });
+    })
+    .catch(() => undefined);
+
   $('#replay').addEventListener('click', () => {
     const url = new URL(location.href);
     url.searchParams.set('intro', '1');
     url.hash = '';
     location.href = url.toString();
   });
-
-  // 有正式发布时，下载按钮直接指向 exe 资源
-  fetch('https://api.github.com/repos/wwrrj/WrionFlashTool/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
-    .then((r) => (r.ok ? r.json() : null))
-    .then((rel) => {
-      if (!rel || !rel.tag_name) return;
-      const assets = rel.assets || [];
-      const asset = assets.find((a) => /\.exe$/i.test(a.name)) || assets.find((a) => /\.zip$/i.test(a.name));
-      const btn = $('#dl-btn');
-      if (asset) {
-        btn.href = asset.browser_download_url;
-        btn.removeAttribute('target');
-      }
-      const size = asset ? `${(asset.size / 1048576).toFixed(1)} MB` : null;
-      const date = rel.published_at ? rel.published_at.slice(0, 10) : null;
-      $('#dl-meta').textContent = [rel.tag_name, 'Windows x64', size, date].filter(Boolean).join(' · ');
-    })
-    .catch(() => undefined);
 
   /* ================= 开场动画 ================= */
 

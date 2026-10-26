@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { FLASH_STAGES } from '../wizard';
 import type {
   BackupInfo, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, ExtractProgressEvent, FlashProfile,
-  FlashStageEvent, PackageInfo, PartitionProgressEvent,
+  FlashStageEvent, PackageInfo, PartitionProgressEvent, UpdateInfo,
 } from '../types';
 
 export const isTauri = () =>
@@ -217,6 +217,23 @@ export const api = {
     return '官方分区表恢复成功';
   },
   openFolder: (path: string): Promise<void> => invoke('open_folder_cmd', { path }),
+
+  checkUpdate: async (): Promise<UpdateInfo> => {
+    if (isTauri()) return invoke('check_update_cmd', {});
+    await wait(300);
+    // 预览时地址栏带 ?update=1 模拟有新版本，?update=required 模拟必须更新
+    const mode = new URLSearchParams(window.location.search).get('update');
+    return {
+      current: '2.0.0', latest: mode ? '2.1.0' : '2.0.0', available: Boolean(mode), required: mode === 'required', date: '2026-10-27',
+      notes: ['小米 14 / 14 Pro 默认开启 16G Super 扩容', '内置 sgdisk，刷机包没带也能扩容', '启动时检查更新'],
+      download_url: 'https://1815751734.share.123pan.cn/123pan/aVuzVv-vCBHH',
+    };
+  },
+
+  openDownload: async (url: string): Promise<void> => {
+    if (isTauri()) return invoke('open_download_cmd', { url });
+    window.open(url, '_blank', 'noopener');
+  },
 };
 
 export async function pickFile(name: string, extensions: string[]): Promise<string | null> {

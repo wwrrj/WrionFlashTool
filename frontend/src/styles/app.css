@@ -373,3 +373,4 @@ code { padding: 1px 6px; border: 1px solid var(--line); border-radius: 5px; colo
 .rail-group .rail-tool + .rail-tool { margin-top: 0; }
 .rail-tool-icon.idtool { color: #7540b5; background: #f1eaff; }
 .rail-tool.active .rail-tool-icon.idtool { color: #fff; background: #7c3aed; }
+.selectable { user-select: text; }

@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["--yes", "http-server", "website", "-p", "5180", "-c-1", "--silent"],
       "port": 5180
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "frontend", "dev", "--port", "5173", "--strictPort"],
+      "port": 5173
     }
   ]
 }

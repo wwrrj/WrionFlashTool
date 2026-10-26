@@ -7,6 +7,7 @@ import type { SidebarTool } from './components/Sidebar';
 import { HardDrive, Sparkles } from 'lucide-react';
 import { SuperShortModal } from './components/SuperShortModal';
 import { Titlebar } from './components/Titlebar';
+import { UpdateModal } from './components/UpdateModal';
 import { useDevices } from './hooks/useDevices';
 import { useFlashEvents } from './hooks/useFlashEvents';
 import { useRomPackage } from './hooks/useRomPackage';
@@ -24,7 +25,7 @@ import { RunPage } from './pages/RunPage';
 import { WelcomePage } from './pages/WelcomePage';
 import { DEFAULT_OPTIONS } from './wizard';
 import type { FlashOptions, Step } from './wizard';
-import type { EnvReport, FlashProfile } from './types';
+import type { EnvReport, FlashProfile, UpdateInfo } from './types';
 import './styles/app.css';
 
 export function App() {
@@ -52,6 +53,8 @@ export function App() {
   const [checkError, setCheckError] = useState<string | null>(null);
   /** 预检发现 super 容量不足时的报告，非空即弹出扩容提示。 */
   const [superShort, setSuperShort] = useState<EnvReport | null>(null);
+  /** 启动时检查到的新版本，非空即弹出更新提示。 */
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
 
   const events = useFlashEvents();
   const { addLog } = events;
@@ -67,6 +70,28 @@ export function App() {
   }, []);
 
   useEffect(() => { void loadProfile(); }, [loadProfile]);
+
+  // 启动时检查一次更新；网络不通时只记日志，不打扰刷机
+  useEffect(() => {
+    api.checkUpdate()
+      .then((info) => {
+        if (!info.available) return;
+        addLog(`[更新] 发现新版本 v${info.latest}（当前 v${info.current}）`);
+        if (info.required || storage.skippedVersion() !== info.latest) setUpdate(info);
+      })
+      .catch((e) => addLog(`[更新] 检查更新失败：${errorMessage(e)}`));
+  }, [addLog]);
+
+  const openDownload = async () => {
+    if (!update) return;
+    try {
+      await api.openDownload(update.download_url);
+      if (!update.required) setUpdate(null);
+    } catch (e) {
+      // 弹窗保持打开，用户可以复制里面的下载地址
+      addLog(`[更新] 无法打开下载页：${errorMessage(e)}`);
+    }
+  };
 
   const pkg = useRomPackage(step === 'package', (root) => {
     addLog(`[刷机包] 已启用：${root}`);
@@ -260,6 +285,14 @@ export function App() {
 
       {logsOpen && <LogDrawer logs={events.logs} onClose={() => setLogsOpen(false)} onClear={() => events.setLogs([])} onOpenFolder={openLogsFolder} />}
       {noticeOpen && profile && <NoticeModal profile={profile} onClose={() => setNoticeOpen(false)} />}
+      {update && (
+        <UpdateModal
+          info={update}
+          onDownload={() => void openDownload()}
+          onSkip={() => { storage.setSkippedVersion(update.latest); setUpdate(null); }}
+          onClose={() => setUpdate(null)}
+        />
+      )}
       {superShort && (
         <SuperShortModal
           current={superShort.super_bytes}

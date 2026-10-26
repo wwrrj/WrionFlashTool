@@ -1,4 +1,4 @@
-//! 内置的完整 Android platform-tools（fastboot / adb 及其依赖）。
+//! 内置的完整 Android platform-tools（fastboot / adb 及其依赖），以及扩容用的 sgdisk-arm64。
 //!
 //! 所有刷机包（FlashProfile 刷机包和小米官方线刷包）都优先使用这份工具，不再依赖包内自带的版本。
 //! `fastboot -w` 等命令需要同目录下的 make_f2fs / mke2fs 生成文件系统镜像，所以必须是完整的一套。
@@ -13,13 +13,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 macro_rules! embed {
-    ($($name:literal),* $(,)?) => {
-        &[$(($name, include_bytes!(concat!("../resources/platform-tools/", $name)) as &[u8])),*]
+    ($dir:literal: $($name:literal),* $(,)?) => {
+        &[$(($name, include_bytes!(concat!("../resources/", $dir, "/", $name)) as &[u8])),*]
     };
 }
 
 /// (文件名, 内容)，来自 platform-tools 36.0.1。
-const EMBEDDED: &[(&str, &[u8])] = embed![
+const EMBEDDED: &[(&str, &[u8])] = embed!["platform-tools":
     "fastboot.exe",
     "adb.exe",
     "AdbWinApi.dll",
@@ -33,6 +33,13 @@ const EMBEDDED: &[(&str, &[u8])] = embed![
     "source.properties",
 ];
 
+/// Android arm64 版 sgdisk 及其依赖库；刷机包没带 tools/sgdisk-arm64 时扩容用这份推送到手机。
+const SGDISK: &[(&str, &[u8])] = embed!["sgdisk-arm64":
+    "sgdisk",
+    "libc++.so",
+    "libext2_uuid.so",
+];
+
 /// 外部目录必须包含这些文件才会被采用，否则仍使用内置的完整版本。
 const REQUIRED: &[&str] = &["fastboot.exe", "adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll", "make_f2fs.exe", "mke2fs.exe"];
 
@@ -40,21 +47,21 @@ fn complete(dir: &Path) -> bool {
     REQUIRED.iter().all(|name| dir.join(name).is_file())
 }
 
-/// 内置工具的释放目录：%LOCALAPPDATA%\WrionFlashTool\platform-tools-<标识>。
-fn cache_dir() -> PathBuf {
+/// 内置工具的释放目录：%LOCALAPPDATA%\WrionFlashTool\<名称>-<标识>。
+fn cache_dir(prefix: &str, files: &[(&str, &[u8])]) -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     // 用全部文件的总大小区分版本：内置工具变化后释放到新目录，不会和旧文件混用
-    let key: usize = EMBEDDED.iter().map(|(_, data)| data.len()).sum();
-    base.join("WrionFlashTool").join(format!("platform-tools-{:x}", key))
+    let key: usize = files.iter().map(|(_, data)| data.len()).sum();
+    base.join("WrionFlashTool").join(format!("{}-{:x}", prefix, key))
 }
 
 /// 释放内置工具；已释放且大小一致的文件不会重写（adb 可能正在运行并占用它）。
-fn extract_embedded() -> Result<PathBuf> {
-    let dir = cache_dir();
+fn extract_embedded(prefix: &str, files: &[(&str, &[u8])]) -> Result<PathBuf> {
+    let dir = cache_dir(prefix, files);
     fs::create_dir_all(&dir).with_context(|| format!("无法创建工具目录：{:?}", dir))?;
-    for (name, data) in EMBEDDED {
+    for (name, data) in files {
         let path = dir.join(name);
         if fs::metadata(&path).map_or(false, |m| m.len() == data.len() as u64) {
             continue;
@@ -70,17 +77,18 @@ fn extract_embedded() -> Result<PathBuf> {
             }
         }
     }
-    remove_stale_copies(&dir);
+    remove_stale_copies(&dir, prefix);
     Ok(dir)
 }
 
 /// 删除旧版本释放的工具目录；正在被占用（如 adb 仍在运行）的会删不掉，留到下次。
-fn remove_stale_copies(current: &Path) {
+fn remove_stale_copies(current: &Path, prefix: &str) {
     let Some(parent) = current.parent() else { return };
     let Ok(entries) = fs::read_dir(parent) else { return };
+    let prefix = format!("{}-", prefix);
     for entry in entries.flatten() {
         let path = entry.path();
-        let is_copy = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("platform-tools-"));
+        let is_copy = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&prefix));
         if is_copy && path != current && path.is_dir() {
             let _ = fs::remove_dir_all(&path);
         }
@@ -96,5 +104,10 @@ pub fn tools_dir() -> Result<PathBuf> {
             }
         }
     }
-    extract_embedded()
+    extract_embedded("platform-tools", EMBEDDED)
+}
+
+/// 返回内置 sgdisk-arm64 的释放目录。
+pub fn sgdisk_dir() -> Result<PathBuf> {
+    extract_embedded("sgdisk-arm64", SGDISK)
 }

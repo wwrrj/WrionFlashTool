@@ -200,3 +200,15 @@ export interface FlashOutcome {
   /** 手机是否已收到重启命令（关闭自动重启或重启失败时为 false） */
   rebooted: boolean;
 }
+
+/** 检查更新的结果（来自网站上的 version.json）。 */
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  available: boolean;
+  /** 当前版本低于 min_version，必须更新后才能继续使用 */
+  required: boolean;
+  date: string;
+  notes: string[];
+  download_url: string;
+}
