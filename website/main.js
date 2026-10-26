@@ -289,7 +289,8 @@
       rel.files.forEach((f) => {
         const li = document.createElement('li');
         li.innerHTML = '<span class="hash-name"></span><code class="hash"></code><button type="button" class="hash-copy">复制</button>';
-        li.querySelector('.hash-name').textContent = `${f.label || f.name} · ${f.name}`;
+        li.querySelector('.hash-name').textContent = f.name;
+        li.querySelector('.hash').title = f.sha256;
         li.querySelector('.hash').textContent = f.sha256;
         li.querySelector('.hash-copy').addEventListener('click', async (e) => {
           const btn = e.currentTarget;

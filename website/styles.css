@@ -297,6 +297,16 @@ code { font-family: var(--mono); font-size: .9em; padding: 1px 6px; border-radiu
 .tree { margin-top: auto; padding: 18px 20px; border-radius: 10px; color: #b8bdc6; background: var(--night); font-family: var(--mono); font-size: 13px; line-height: 1.75; overflow-x: auto; }
 .tree b { color: #fff; font-weight: 600; }
 
+/* 常见问题 */
+.faq { display: grid; gap: 10px; max-width: 860px; }
+.faq details { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); transition: border-color .15s, box-shadow .15s; }
+.faq details[open] { border-color: #d5d8dd; box-shadow: 0 12px 30px -24px rgb(15 23 42 / 35%); }
+.faq summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 15px 18px; color: var(--ink); font-size: 15px; font-weight: 600; list-style: none; cursor: pointer; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: ""; flex: none; width: 8px; height: 8px; margin-right: 4px; border-right: 1.8px solid var(--muted); border-bottom: 1.8px solid var(--muted); transform: rotate(45deg) translateY(-2px); transition: transform .2s; }
+.faq details[open] summary::after { transform: rotate(-135deg) translateY(-2px); }
+.faq details p { padding: 0 18px 16px; color: var(--muted); font-size: 14px; line-height: 1.7; }
+
 /* 下载 */
 .download { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: 0 30px 80px -40px rgb(15 23 42 / 25%); }
 .dl-main { padding: 52px; }
@@ -315,6 +325,20 @@ code { font-family: var(--mono); font-size: .9em; padding: 1px 6px; border-radiu
 .code pre { padding: 16px 18px; border-radius: 10px; color: #d1d5db; background: var(--night); font-family: var(--mono); font-size: 12.5px; line-height: 1.75; overflow-x: auto; }
 .copy { position: absolute; top: 8px; right: 8px; height: 26px; padding: 0 10px; border-radius: 6px; color: #9ca3af; background: #1d2026; font-size: 12px; transition: color .15s, background .15s; }
 .copy:hover { color: #fff; background: #2a2e36; }
+.code-bar { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 6px 0 16px; border-bottom: 1px solid var(--night-line); border-radius: 10px 10px 0 0; color: #8b9099; background: var(--night); font-family: var(--mono); font-size: 12px; }
+.code-bar .copy { position: static; }
+.code-bar + pre { border-radius: 0 0 10px 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.trust { margin-top: 22px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
+.trust-row strong { color: var(--ink); font-size: 13px; font-weight: 650; }
+#dl-hashes { display: grid; gap: 6px; margin-top: 8px; padding: 0; list-style: none; }
+#dl-hashes li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 12.5px; }
+#dl-hashes .muted-note { display: block; color: var(--faint); }
+.hash-name { color: var(--muted); white-space: nowrap; }
+.hash { overflow: hidden; padding: 3px 8px; border: 1px solid var(--line-soft); background: var(--surface); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.hash-copy { height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--body); background: var(--surface); font-size: 12px; transition: border-color .15s, color .15s; }
+.hash-copy:hover { border-color: #c9cdd3; color: var(--ink); }
+.trust-note { margin-top: 10px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.trust-note code { font-size: 11.5px; }
 .small-note { margin-top: 12px; color: var(--faint); font-size: 12.5px; }
 
 /* 页脚（位于下载页底部） */
