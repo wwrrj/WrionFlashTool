@@ -2,7 +2,7 @@ use crate::config::FlashProfile;
 use crate::device::DeviceSession;
 use crate::expand::ExpandProgress;
 use crate::flash::{
-    is_overflow_flash_error, logical_flash_size, recreate_logical_partition,
+    is_overflow_flash_error, logical_flash_size, recreate_logical_partition, wipe_userdata,
     MIN_LOGICAL_FLASH_BYTES,
 };
 use crate::sdat2img::sdat2img;
@@ -193,12 +193,7 @@ pub fn flash_mi_ext_image(session: &DeviceSession, image: &Path, work_dir: &Path
 
 pub fn format_userdata_metadata(session: &DeviceSession) -> Result<()> {
     session.logger.write("  格式化 Data（fastboot -w）…");
-    session.run_fastboot(
-        &["-w"],
-        Some("fastboot -w 格式化 userdata / metadata"),
-        false,
-    )?;
-    Ok(())
+    wipe_userdata(session)
 }
 
 /// ID 刷入的步骤，按是否清除数据 / 是否重启组合。

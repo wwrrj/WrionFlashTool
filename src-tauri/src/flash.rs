@@ -287,6 +287,96 @@ pub fn run_image_op(profile: &FlashProfile, session: &DeviceSession, op: &ImageO
     )
 }
 
+/// 清除用户数据时依次处理的分区：(分区, 读不到类型时的默认文件系统, 是否必须存在)。
+const WIPE_PARTITIONS: &[(&str, &str, bool)] = &[
+    ("userdata", "f2fs", true),
+    ("metadata", "ext4", false),
+    ("cache", "ext4", false),
+];
+
+/// 清除用户数据。先用 `fastboot -w`；部分机型 / 模式下它会报错
+/// （读不到分区类型、本地生成文件系统失败、fastbootd 不支持等），这时逐个分区兜底：
+/// `format:<类型>` → `erase`。仍然失败且处于 fastbootd 时，回到 bootloader 再完整试一遍。
+pub fn wipe_userdata(session: &DeviceSession) -> Result<()> {
+    let res = session.run_fastboot(&["-w"], Some("fastboot -w 格式化 userdata / metadata"), true)?;
+    if res.code == 0 {
+        return Ok(());
+    }
+    session.logger.write(&format!("[兜底] fastboot -w 失败（{}），改为逐个分区清除…", res.code));
+    let first_err = match wipe_partitions(session) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+
+    let in_fastbootd = session
+        .getvar("is-userspace", true)
+        .ok()
+        .flatten()
+        .is_some_and(|v| v.eq_ignore_ascii_case("yes"));
+    if !in_fastbootd {
+        return Err(wipe_failed(first_err));
+    }
+
+    session.logger.write("[兜底] 当前在 fastbootd，切换到 bootloader 后重试…");
+    session.run_fastboot(&["reboot", "bootloader"], Some("重启到 bootloader"), false)?;
+    std::thread::sleep(Duration::from_secs(2));
+    match session.serial.as_deref() {
+        Some(serial) => session.wait_for_fastboot_serial(serial, 90).map(|_| ())?,
+        None => session.wait_for_any_fastboot(90).map(|_| ())?,
+    }
+    session.wait_for_mode(false, 90)?;
+
+    let res = session.run_fastboot(&["-w"], Some("fastboot -w（bootloader）"), true)?;
+    if res.code == 0 {
+        return Ok(());
+    }
+    wipe_partitions(session).map_err(wipe_failed)
+}
+
+fn wipe_failed(err: anyhow::Error) -> anyhow::Error {
+    anyhow!(
+        "清除数据失败，fastboot -w、format、erase 都没有成功。\n\
+         可以让手机进入 Recovery，选择“清除数据 / Wipe Data”后再开机。\n\n{:#}",
+        err
+    )
+}
+
+fn wipe_partitions(session: &DeviceSession) -> Result<()> {
+    for &(part, default_fs, required) in WIPE_PARTITIONS {
+        wipe_partition(session, part, default_fs, required)?;
+    }
+    Ok(())
+}
+
+fn wipe_partition(session: &DeviceSession, part: &str, default_fs: &str, required: bool) -> Result<()> {
+    // 明确指定文件系统，避开 -w 依赖的 partition-type 查询
+    let fs = session
+        .getvar(&format!("partition-type:{}", part), true)
+        .ok()
+        .flatten()
+        .filter(|t| matches!(t.as_str(), "f2fs" | "ext4"))
+        .unwrap_or_else(|| default_fs.to_string());
+    let format_cmd = format!("format:{}", fs);
+    let formatted = session.run_fastboot(&[&format_cmd, part], Some(&format!("格式化 {}（{}）", part, fs)), true)?;
+    if formatted.code == 0 {
+        return Ok(());
+    }
+
+    let erased = session.run_fastboot(&["erase", part], Some(&format!("擦除 {}", part)), true)?;
+    if erased.code == 0 {
+        session.logger.write(&format!("  {} 已擦除，首次开机时系统会自动重新格式化", part));
+        return Ok(());
+    }
+
+    let lower = erased.text.to_lowercase();
+    let missing = ["does not exist", "no such", "not found", "unknown partition"].iter().any(|k| lower.contains(k));
+    if !required && missing {
+        session.logger.write(&format!("  手机没有 {} 分区，跳过", part));
+        return Ok(());
+    }
+    bail!("无法清除 {}：\nformat：{}\nerase：{}", part, formatted.text, erased.text)
+}
+
 pub fn restore_dat_to_raw(
     profile: &FlashProfile,
     session: &DeviceSession,
@@ -945,11 +1035,7 @@ pub fn execute_flash_pipeline(
         run_image_op(profile, &session, op)?;
     }
     if !preserve_data {
-        session.run_fastboot(
-            &["-w"],
-            Some("fastboot -w 格式化 userdata / metadata"),
-            false,
-        )?;
+        wipe_userdata(&session)?;
     }
     if let Some(ref slot) = profile.set_active_slot {
         session.run_fastboot(
