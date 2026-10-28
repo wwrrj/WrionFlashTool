@@ -37,7 +37,7 @@ fn main() {
     }
 
     if args.iter().any(|a| a == "--version") {
-        println!("Wrion FlashTool 2.0.0 (Rust + Tauri)");
+        println!("Wrion FlashTool {} (Rust + Tauri)", env!("CARGO_PKG_VERSION"));
         return;
     }
 
