@@ -1,7 +1,9 @@
 :root {
   --ink: #111318;
   --body: #3b4048;
-  --muted: #6b7280;
+  /* 比规范的 #6b7280 略深：在侧边栏 #f3f4f6 底上也能达到 4.5:1 */
+  --muted: #636a76;
+  /* 只用于占位符、禁用文字和装饰，不用于需要阅读的文字 */
   --faint: #9ca3af;
   --line: #e4e6ea;
   --line-soft: #eef0f2;
@@ -11,8 +13,11 @@
 
   --primary: #111318;
   --primary-hover: #2a2d33;
+  --primary-active: #242424;
+  --disabled: #e5e7eb;
   --danger: #dc2626;
   --danger-hover: #b91c1c;
+  --danger-active: #991b1b;
   --danger-soft: #fef2f2;
   --danger-line: #fbd5d5;
   --success: #059669;
@@ -25,15 +30,18 @@
   --info-soft: #eff6ff;
   --info-line: #cfe0fd;
 
-  --radius: 10px;
-  --radius-sm: 7px;
+  /* 圆角层级：小元素 6 · 按钮/输入框/列表项 8 · 卡片 12 · 弹窗 16 */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --shadow-pop: 0 24px 64px rgb(15 23 42 / 22%);
 
   --font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
   --mono: "Cascadia Mono", Consolas, "JetBrains Mono", ui-monospace, monospace;
 
   font-family: var(--font);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   color: var(--body);
   background: var(--canvas);
@@ -51,6 +59,8 @@ button:disabled { cursor: not-allowed; }
 input, select { user-select: text; }
 :focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
 p, h1, h2, h3, h4, ol, ul, dl, dd, pre { margin: 0; }
+/* 字重只用 400 / 500 / 600 */
+b, strong { font-weight: 600; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #d1d5db; border: 2px solid transparent; border-radius: 99px; background-clip: padding-box; }

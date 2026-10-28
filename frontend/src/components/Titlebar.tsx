@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Minus, Square, X, Zap } from 'lucide-react';
+import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '../lib/api';
@@ -6,6 +8,12 @@ import { isTauri } from '../lib/api';
 const win = () => (isTauri() ? getCurrentWindow() : null);
 
 export function Titlebar({ busy }: { busy: boolean }) {
+  // 版本号取自 tauri.conf.json，发版时不用再改这里
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    if (isTauri()) getVersion().then(setVersion).catch(() => setVersion(null));
+  }, []);
+
   const close = async () => {
     if (busy && isTauri()) {
       const sure = await ask('正在刷入中，现在关闭可能导致手机无法开机。确定要关闭吗？', { title: '正在刷入', kind: 'warning', okLabel: '仍然关闭', cancelLabel: '继续刷入' });
@@ -20,7 +28,7 @@ export function Titlebar({ busy }: { busy: boolean }) {
         <span className="brand-mark">W</span>
         <strong>Wrion</strong>
         <span className="brand-tool"><Zap size={10} strokeWidth={2.8} />FlashTool</span>
-        <small>v2.0</small>
+        {version && <small>v{version}</small>}
       </div>
       <div className="titlebar-actions">
         <button className="win-btn" onClick={() => void win()?.minimize()} aria-label="最小化"><Minus size={15} /></button>
