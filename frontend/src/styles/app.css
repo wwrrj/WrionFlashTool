@@ -374,3 +374,28 @@ code { padding: 1px 6px; border: 1px solid var(--line); border-radius: 5px; colo
 .rail-tool-icon.idtool { color: #7540b5; background: #f1eaff; }
 .rail-tool.active .rail-tool-icon.idtool { color: #fff; background: #7c3aed; }
 .selectable { user-select: text; }
+
+/* ============ 读取主板 ID ============ */
+
+.rail-tool-icon.boardid { color: #0f766e; background: #e0f5f1; }
+.rail-tool.active .rail-tool-icon.boardid { color: #fff; background: #0d9488; }
+.timeline li.failed { color: var(--ink); font-weight: 650; }
+.timeline li.failed .tl-dot { border-color: var(--danger); color: #fff; background: var(--danger); }
+.timeline li small { overflow: hidden; max-width: 320px; text-overflow: ellipsis; white-space: nowrap; }
+.timeline li.failed small { color: var(--danger); }
+.board-id { display: grid; justify-items: start; gap: 6px; padding-bottom: 6px; }
+.board-id-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+.board-id strong { color: var(--ink); font-size: 30px; font-weight: 700; letter-spacing: .02em; line-height: 1.2; overflow-wrap: anywhere; }
+.board-id-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.board-id-actions .mono { color: var(--muted); font-size: 11.5px; }
+.problem-card { border-color: var(--danger-line); }
+.problem-head { display: flex; align-items: flex-start; gap: 10px; color: var(--danger); }
+.problem-head > svg { flex: none; margin-top: 2px; }
+.problem-head > div { display: grid; gap: 4px; min-width: 0; }
+.problem-head strong { color: #9b1c1c; font-size: 14px; }
+.problem-head p { color: var(--body); font-size: 12.5px; line-height: 1.7; }
+.problem-card .field-label { margin: 0; }
+.problem-card .inline-actions { flex-wrap: wrap; gap: 8px; }
+.problem-foot { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.problem-foot .tips { flex: 1; max-width: none; }
+.problem-foot .error-text { margin-top: 8px; }

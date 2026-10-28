@@ -4,7 +4,7 @@ import { LogDrawer } from './components/LogDrawer';
 import { NoticeModal } from './components/NoticeModal';
 import { Sidebar } from './components/Sidebar';
 import type { SidebarTool } from './components/Sidebar';
-import { HardDrive, Sparkles } from 'lucide-react';
+import { Cpu, HardDrive, Sparkles } from 'lucide-react';
 import { SuperShortModal } from './components/SuperShortModal';
 import { Titlebar } from './components/Titlebar';
 import { UpdateModal } from './components/UpdateModal';
@@ -14,6 +14,7 @@ import { useRomPackage } from './hooks/useRomPackage';
 import { api, isTauri } from './lib/api';
 import { errorMessage, formatGiB, modeLabel } from './lib/format';
 import { storage } from './lib/storage';
+import { BoardIdPage } from './pages/BoardIdPage';
 import { DonePage } from './pages/DonePage';
 import { ExpandPage } from './pages/ExpandPage';
 import { IdPage } from './pages/IdPage';
@@ -47,7 +48,7 @@ export function App() {
   const [noticeOpen, setNoticeOpen] = useState(false);
   /** 进入扩容工具前所在的步骤，退出工具时回到这里。 */
   const [returnStep, setReturnStep] = useState<Step>('device');
-  /** 工具页（扩容 / 刷入 ID）正在执行，期间锁定导航。 */
+  /** 工具页（扩容 / 刷入 ID / 读取主板 ID）正在执行，期间锁定导航。 */
   const [toolBusy, setToolBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -195,7 +196,7 @@ export function App() {
   const device = devices.current;
   const showLogs = () => setLogsOpen(true);
   const running = step === 'run' && !error;
-  const inTool = step === 'expand' || step === 'idtool';
+  const inTool = step === 'expand' || step === 'idtool' || step === 'boardid';
   const openTool = (tool: Step) => {
     if (!inTool) setReturnStep(step);
     setStep(tool);
@@ -214,6 +215,15 @@ export function App() {
   const busy = running || toolBusy;
   const isOfficial = profile?.kind === 'official';
   const tools: SidebarTool[] = [
+    {
+      // 不依赖刷机包：还没有 ID 补丁的用户正需要先读出主板 ID
+      key: 'boardid',
+      label: '读取主板 ID',
+      hint: '制作 ID 补丁需要的序列号',
+      icon: <Cpu size={15} />,
+      active: step === 'boardid',
+      onOpen: () => openTool('boardid'),
+    },
     {
       key: 'idtool',
       label: '刷入 ID 补丁',
@@ -275,6 +285,9 @@ export function App() {
       {step === 'done' && <DonePage rebootWanted={options.reboot} rebooted={rebooted} onAgain={again} onShowLogs={showLogs} onOpenLogsFolder={openLogsFolder} />}
       {step === 'expand' && profile?.expansion && (
         <ExpandPage config={profile.expansion} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={exitExpand} />
+      )}
+      {step === 'boardid' && (
+        <BoardIdPage onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={() => setStep(returnStep)} />
       )}
       {step === 'idtool' && profile && (
         <IdPage serial={devices.selectedSerial} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={() => setStep(returnStep)} />

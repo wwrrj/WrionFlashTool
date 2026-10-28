@@ -212,3 +212,47 @@ export interface UpdateInfo {
   notes: string[];
   download_url: string;
 }
+
+/** 读取主板 ID 的方式：普通 ADB Shell，或通过 su 获取 Root 权限。 */
+export type BoardIdMethod = 'shell' | 'root';
+
+/** 读取失败时界面上可以一键执行的解决操作。 */
+export type BoardIdFix = 'retry_root' | 'install_driver' | 'restart_adb' | 'reboot_system';
+
+export interface BoardIdCheck {
+  label: string;
+  ok: boolean;
+  detail?: string | null;
+}
+
+export interface BoardIdProblem {
+  /** 错误类型，例如 unauthorized、permission_denied、no_device */
+  code: string;
+  title: string;
+  detail: string;
+  steps: string[];
+  actions: BoardIdFix[];
+  /** 出错命令的原始输出 */
+  raw?: string | null;
+}
+
+export interface BoardInfo {
+  /** 节点原始内容（十进制） */
+  serial_number: string;
+  hex: string;
+  node: string;
+  adb_serial: string;
+  /** device（系统）或 recovery */
+  mode: string;
+  model?: string | null;
+  device?: string | null;
+  via_root: boolean;
+}
+
+/** 读取主板 ID 的结果：成功时 info 有值，失败时 problem 说明卡在哪一步、怎么解决。 */
+export interface BoardIdOutcome {
+  checks: BoardIdCheck[];
+  devices: { serial: string; state: string }[];
+  info?: BoardInfo | null;
+  problem?: BoardIdProblem | null;
+}

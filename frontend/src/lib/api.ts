@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FLASH_STAGES } from '../wizard';
 import type {
-  BackupInfo, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, ExtractProgressEvent, FlashProfile,
+  BackupInfo, BoardIdFix, BoardIdMethod, BoardIdOutcome, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, ExtractProgressEvent, FlashProfile,
   FlashStageEvent, PackageInfo, PartitionProgressEvent, UpdateInfo,
 } from '../types';
 
@@ -112,6 +112,41 @@ const previewPlan: ExpandPlan = {
   current_super_bytes: 8321499136, new_super_last: 0, new_userdata_first: 0, new_userdata_bytes: 210 * 1073741824, super_part: 32, userdata_part: 33,
 };
 
+/** 浏览器预览：地址栏带 ?boardid=denied / unauthorized / fastboot 可模拟对应的失败。 */
+function previewBoardId(method: BoardIdMethod): BoardIdOutcome {
+  const scenario = new URLSearchParams(window.location.search).get('boardid');
+  const devices = [{ serial: 'PREVIEW0123456789', state: scenario === 'unauthorized' ? 'unauthorized' : 'device' }];
+  const passed = (labels: string[]) => labels.map((label) => ({ label, ok: true }));
+  if (scenario === 'fastboot') {
+    return {
+      checks: [...passed(['准备 ADB 工具', '启动 ADB 服务']), { label: '查找手机', ok: false, detail: '手机处于 Fastboot 模式' }], devices: [],
+      problem: { code: 'in_fastboot', title: '手机处于 Fastboot 模式', detail: 'Fastboot 模式下无法读取主板 ID。需要让手机开机进入系统（或进入第三方 Recovery），再通过 ADB 读取。', steps: ['点“重启进系统”，或长按电源键约 10 秒让手机重启', '开机后保持亮屏解锁，工具会自动重新读取'], actions: ['reboot_system'] },
+    };
+  }
+  if (scenario === 'unauthorized') {
+    return {
+      checks: [...passed(['准备 ADB 工具', '启动 ADB 服务', '查找手机']), { label: 'USB 调试授权', ok: false, detail: '手机还没有允许这台电脑调试' }], devices,
+      problem: { code: 'unauthorized', title: '手机还没有允许这台电脑调试', detail: '手机 PREVIEW0123456789 已连接，但 USB 调试授权还没通过。', steps: ['解锁手机屏幕，弹出“允许 USB 调试吗？”时，勾选“一律允许使用这台计算机进行调试”，再点“允许”', '没看到弹窗：拔掉数据线 → 开发者选项里点“撤销 USB 调试授权” → 重新插上', '点完允许后工具会自动重新读取'], actions: [] },
+    };
+  }
+  const base = passed(['准备 ADB 工具', '启动 ADB 服务', '查找手机', 'USB 调试授权', ...(method === 'root' ? ['Root 授权'] : [])]);
+  if (scenario === 'denied' && method === 'shell') {
+    return {
+      checks: [...base, { label: '读取主板 ID', ok: false, detail: '没有权限读取主板 ID 节点' }], devices,
+      problem: {
+        code: 'permission_denied', title: '没有权限读取主板 ID 节点',
+        detail: '这台手机的系统（SELinux 安全策略）不允许普通 ADB 读取 /sys/devices/soc0/serial_number。这是系统限制，和数据线、驱动无关，换别的工具用普通 ADB 读也是同样结果。',
+        steps: ['手机已 Root（Magisk / KernelSU / APatch）：点“用 Root 权限读取”，手机弹出授权时点“允许”', '没有 Root：重启进入第三方 Recovery（TWRP / OrangeFox），连上电脑后点“重新读取”，Recovery 下 ADB 默认就有读取权限', '没有刷第三方 Recovery：可以用 fastboot boot 临时启动适配本机型的 TWRP 镜像（不会写入手机），再读取'],
+        actions: ['retry_root'], raw: 'cat: /sys/devices/soc0/serial_number: Permission denied',
+      },
+    };
+  }
+  return {
+    checks: [...base, { label: '读取主板 ID', ok: true, detail: '3482937158（0xcf9a1f46）' }], devices,
+    info: { serial_number: '3482937158', hex: '0xcf9a1f46', node: '/sys/devices/soc0/serial_number', adb_serial: 'PREVIEW0123456789', mode: 'device', model: '23116PN5BC', device: 'shennong', via_root: method === 'root' },
+  };
+}
+
 /** 预览模式下“已解压”的状态；地址栏带 ?preview=ready 时直接视为已就绪。 */
 const previewParam = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('preview') : null;
 let previewReady = previewParam === 'ready' || previewParam === 'official';
@@ -196,6 +231,18 @@ export const api = {
   /** 刷机包目录里文件名像 ID 补丁的文件。 */
   idCandidates: (): Promise<string[]> =>
     isTauri() ? invoke('id_candidates_cmd', {}) : Promise.resolve(['E:\\latest=rom\\shennong_ID_mi_ext.zip']),
+  /** 按步骤读取主板 ID（soc0/serial_number），失败时结果里带有原因和解决办法。 */
+  readBoardId: async (chosenSerial: string | null, method: BoardIdMethod, quiet = false): Promise<BoardIdOutcome> => {
+    if (isTauri()) return invoke('read_board_id_cmd', { chosenSerial, method, quiet });
+    await wait(700);
+    return previewBoardId(method);
+  },
+  /** 执行读取主板 ID 给出的解决操作（安装驱动走 installUsbDriver）。 */
+  boardIdFix: async (action: BoardIdFix, serial: string | null): Promise<string> => {
+    if (isTauri()) return invoke('board_id_fix_cmd', { action, serial });
+    await wait(500);
+    return action === 'restart_adb' ? 'ADB 服务已重启' : '已发送重启命令，请等待手机开机并解锁屏幕';
+  },
   runRootFlash: (args: { chosenSerial: string | null; imagePath: string; target: string; reboot: boolean }): Promise<FlashOutcome> =>
     invoke('run_root_flash_cmd', { ...args, confirmWord: 'ROOT' }),
 

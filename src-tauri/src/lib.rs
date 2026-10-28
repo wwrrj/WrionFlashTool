@@ -7,6 +7,7 @@ pub mod device;
 pub mod flash;
 pub mod rootflash;
 pub mod idflash;
+pub mod boardid;
 pub mod expand;
 pub mod rompkg;
 pub mod backup;
@@ -36,6 +37,8 @@ pub fn run() {
             commands::run_root_flash_cmd,
             commands::run_id_flash_cmd,
             commands::id_candidates_cmd,
+            commands::read_board_id_cmd,
+            commands::board_id_fix_cmd,
             commands::get_expand_plan_cmd,
             commands::apply_expand_cmd,
             commands::list_backups_cmd,

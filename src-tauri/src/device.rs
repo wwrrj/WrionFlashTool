@@ -69,11 +69,8 @@ pub fn parse_size(value: &str) -> Result<u64> {
     }
 }
 
-pub fn run_process(
-    file_path: &Path,
-    args: &[&str],
-    logger: Option<&Logger>,
-) -> Result<ProcessResult> {
+/// 构造不弹出控制台窗口的命令，并按需把命令行写入日志。
+fn build_command(file_path: &Path, args: &[&str], logger: Option<&Logger>) -> Command {
     let command_path = PathBuf::from(normalize_external_path(&file_path.to_string_lossy()));
     let normalized_args: Vec<String> = args
         .iter()
@@ -98,16 +95,91 @@ pub fn run_process(
     let mut cmd = Command::new(&command_path);
 
     cmd.args(&normalized_args);
+    cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    cmd
+}
 
-    let output = cmd
+pub fn run_process(
+    file_path: &Path,
+    args: &[&str],
+    logger: Option<&Logger>,
+) -> Result<ProcessResult> {
+    let output = build_command(file_path, args, logger)
         .output()
         .map_err(|e| anyhow!("执行程序失败 {:?}: {}", file_path, e))?;
+    Ok(collect_result(
+        output.status.code().unwrap_or(-1),
+        &output.stdout,
+        &output.stderr,
+        logger,
+    ))
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let code = output.status.code().unwrap_or(-1);
+/// 退出码：命令超时被结束。
+pub const TIMEOUT_CODE: i32 = -2;
+
+/// 与 run_process 相同，但超过 `timeout` 会结束进程并返回 TIMEOUT_CODE
+/// （例如手机上的 Root 授权弹窗没人点，`adb shell su` 会一直等下去）。
+pub fn run_process_timeout(
+    file_path: &Path,
+    args: &[&str],
+    logger: Option<&Logger>,
+    timeout: Duration,
+) -> Result<ProcessResult> {
+    use std::io::Read;
+    use std::sync::mpsc;
+
+    let mut child = build_command(file_path, args, logger)
+        .spawn()
+        .map_err(|e| anyhow!("执行程序失败 {:?}: {}", file_path, e))?;
+
+    // 输出在后台线程读取，避免管道写满导致子进程卡住
+    let read_pipe = |pipe: Option<Box<dyn Read + Send>>| {
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            let _ = tx.send(buf);
+        });
+        rx
+    };
+    let stdout_rx = read_pipe(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let stderr_rx = read_pipe(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+
+    let start = Instant::now();
+    let code = loop {
+        if let Some(status) = child.try_wait()? {
+            break status.code().unwrap_or(-1);
+        }
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            break TIMEOUT_CODE;
+        }
+        thread::sleep(Duration::from_millis(100));
+    };
+
+    // 进程已退出；若有后台进程继承了管道，最多再等 2 秒
+    let stdout = stdout_rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
+    let stderr = stderr_rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
+    let mut result = collect_result(code, &stdout, &stderr, logger);
+    if code == TIMEOUT_CODE {
+        let note = format!("（{} 秒内没有完成，已结束）", timeout.as_secs());
+        if let Some(lg) = logger {
+            lg.write(&note);
+        }
+        result.text = if result.text.is_empty() { note } else { format!("{}\n{}", result.text, note) };
+    }
+    Ok(result)
+}
+
+fn collect_result(code: i32, stdout: &[u8], stderr: &[u8], logger: Option<&Logger>) -> ProcessResult {
+    let stdout = String::from_utf8_lossy(stdout).to_string();
+    let stderr = String::from_utf8_lossy(stderr).to_string();
 
     let mut text_parts = Vec::new();
     if !stdout.trim().is_empty() {
@@ -124,12 +196,12 @@ pub fn run_process(
         }
     }
 
-    Ok(ProcessResult {
+    ProcessResult {
         code,
         text,
         stdout,
         stderr,
-    })
+    }
 }
 
 pub struct DeviceSession {

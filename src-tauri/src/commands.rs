@@ -10,6 +10,7 @@ use crate::idflash::run_id_flash;
 use crate::logger::Logger;
 use crate::rootflash::flash_root_image;
 use crate::backup::{self, BackupInfo};
+use crate::boardid::{self, BoardIdOutcome, FixAction, ReadMethod};
 use crate::config::find_rom_root;
 use crate::official;
 use crate::update;
@@ -368,6 +369,40 @@ pub async fn run_id_flash_cmd(
     .map_err(|e| e.to_string())?;
 
     Ok(FlashOutcome { log_path: log_path.display().to_string(), rebooted })
+}
+
+/// 读取主板 ID（soc0/serial_number）。不需要先选择刷机包；每一步的检查结果和失败时的解决办法都在返回值里。
+#[command]
+pub async fn read_board_id_cmd(
+    app: AppHandle,
+    chosen_serial: Option<String>,
+    method: ReadMethod,
+    quiet: Option<bool>,
+) -> Result<BoardIdOutcome, String> {
+    // quiet：界面在等待用户操作手机时自动重试，不写日志，免得刷屏
+    let quiet = quiet.unwrap_or(false);
+    let mut logger = Logger::new((!quiet).then_some(app));
+    // 已选刷机包时同时写入日志文件，方便用户发给别人排查
+    if let (false, Ok(profile)) = (quiet, get_active_profile(None, None)) {
+        let _ = logger.start(&profile.logs_dir, "wrion-boardid");
+    }
+    tokio::task::spawn_blocking(move || boardid::read_board_id(&logger, chosen_serial.as_deref(), method))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// 执行读取主板 ID 时给出的解决操作（重启 ADB 服务、从 Fastboot 重启进系统）。
+#[command]
+pub async fn board_id_fix_cmd(
+    app: AppHandle,
+    action: FixAction,
+    serial: Option<String>,
+) -> Result<String, String> {
+    let logger = Logger::new(Some(app));
+    tokio::task::spawn_blocking(move || boardid::run_fix(&logger, action, serial.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{:#}", e))
 }
 
 #[command]
