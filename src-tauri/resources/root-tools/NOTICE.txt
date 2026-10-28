@@ -1,0 +1,19 @@
+WrionFlashTool 内嵌 Root 修补工具
+
+KernelSU ksud
+- Version: v3.3.1
+- File: kernelsu/ksud.exe
+- Source: https://github.com/tiann/KernelSU/releases/tag/v3.3.1
+- SHA-256: C259B0111A4FC6AB21F0F1A6D56B66CF87B377E3F87325340C8221FFF904B88F
+- License: GPL-3.0-or-later (kernel directory is GPL-2.0-only)
+
+KernelPatch / APatch tools
+- Version: 0.13.9
+- Files: apatch/kptools.exe, apatch/kpimg-android, apatch/msys-2.0.dll, apatch/msys-z.dll
+- Source: https://github.com/bmax121/KernelPatch/releases/tag/0.13.9
+- kpimg-android SHA-256: EB2E3D16FE69410150EFCF6F9425BAF8CAD9AC0C39F051FC8B40CE57C7143ADB
+- Windows archive SHA-256: A65FBD0ACB34A2E1E775184A50275437496669CE48CD1541B954D9336A194BD6
+- License: GPL-2.0
+
+The corresponding upstream source and license texts must remain available when
+redistributing these files.

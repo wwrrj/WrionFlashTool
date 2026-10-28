@@ -50,21 +50,18 @@ fn query_partition_size(session: &DeviceSession, target: &str) -> Result<u64> {
     Ok(*values.iter().min().unwrap())
 }
 
-pub fn flash_root_image(
-    profile: &FlashProfile,
-    session: &mut DeviceSession,
-    image_path: &Path,
-    target: &str, // "boot" or "init_boot"
-    reboot: bool,
-) -> Result<bool> {
-    verify_boot_image(image_path)?;
-
+/// 刷入 Root 镜像前的准备：选中手机、校验机型（使用刷机包时）、确保处于 bootloader。
+pub fn prepare_root_flash(profile: Option<&FlashProfile>, session: &mut DeviceSession) -> Result<()> {
     let chosen_serial = session.serial.clone();
     session.select_device(chosen_serial.as_deref())?;
     let product = session.getvar("product", false)?
         .ok_or_else(|| anyhow!("无法读取机型 product 代号"))?;
-    if !profile.codenames.iter().any(|c| c == &product) {
-        bail!("机型不匹配：检测到 {}，支持：{}", product, profile.codenames.join(", "));
+    match profile {
+        Some(profile) if !profile.codenames.iter().any(|c| c == &product) => {
+            bail!("机型不匹配：检测到 {}，支持：{}", product, profile.codenames.join(", "));
+        }
+        Some(_) => {}
+        None => session.logger.write(&format!("  未使用刷机包，跳过机型校验（手机：{}）", product)),
     }
 
     let is_us = session.getvar("is-userspace", true)?.unwrap_or_default().to_lowercase() == "yes";
@@ -74,7 +71,12 @@ pub fn flash_root_image(
         session.wait_for_any_fastboot(90)?;
         session.wait_for_mode(false, 90)?;
     }
+    Ok(())
+}
 
+/// 把 Root 镜像写入 `<target>_ab`；先核对分区物理大小，超出就拒绝。
+pub fn write_root_image(session: &DeviceSession, image_path: &Path, target: &str) -> Result<()> {
+    verify_boot_image(image_path)?;
     let limit = query_partition_size(session, target)?;
     let size = image_path.metadata()?.len();
     if size > limit {
@@ -90,6 +92,18 @@ pub fn flash_root_image(
     )?;
 
     session.logger.write("  Root 镜像刷入完成。");
+    Ok(())
+}
 
+pub fn flash_root_image(
+    profile: &FlashProfile,
+    session: &mut DeviceSession,
+    image_path: &Path,
+    target: &str, // "boot" or "init_boot"
+    reboot: bool,
+) -> Result<bool> {
+    verify_boot_image(image_path)?;
+    prepare_root_flash(Some(profile), session)?;
+    write_root_image(session, image_path, target)?;
     session.reboot_to_system(reboot)
 }

@@ -136,6 +136,27 @@ export interface PackageInfo {
   free_bytes?: number | null;
 }
 
+export interface RootCandidates {
+  boot_images: string[];
+  init_boot_images: string[];
+  kernel_images: string[];
+  kpimg_images: string[];
+  kernelsu_modules: string[];
+}
+
+export type RootMethod = 'kernelsu' | 'apatch';
+
+/** Root 工具的结果：修补后的镜像，以及是否已重启。 */
+export interface RootToolOutcome {
+  output_path: string;
+  source_path: string;
+  method: RootMethod;
+  /** KernelSU 为 init_boot，APatch 为 boot */
+  target: 'init_boot' | 'boot';
+  log_path: string;
+  rebooted: boolean;
+}
+
 export interface ExtractProgressEvent {
   done_bytes: number;
   total_bytes: number;
@@ -159,7 +180,7 @@ export interface BackupInfo {
 }
 
 export interface ExpandProgressEvent {
-  phase: 'plan' | 'apply' | 'restore' | 'id';
+  phase: 'plan' | 'apply' | 'restore' | 'id' | 'root';
   steps: string[];
   /** 当前步骤序号（从 0 开始）；等于 steps.length 表示全部完成。 */
   current: number;

@@ -70,7 +70,12 @@ pub fn parse_size(value: &str) -> Result<u64> {
 }
 
 /// 构造不弹出控制台窗口的命令，并按需把命令行写入日志。
-fn build_command(file_path: &Path, args: &[&str], logger: Option<&Logger>) -> Command {
+fn build_command_with_log_args(
+    file_path: &Path,
+    args: &[&str],
+    logger: Option<&Logger>,
+    log_args: Option<&[&str]>,
+) -> Command {
     let command_path = PathBuf::from(normalize_external_path(&file_path.to_string_lossy()));
     let normalized_args: Vec<String> = args
         .iter()
@@ -78,7 +83,10 @@ fn build_command(file_path: &Path, args: &[&str], logger: Option<&Logger>) -> Co
         .collect();
 
     if let Some(lg) = logger {
-        let cmd_str = format!("{} {}", command_path.display(), normalized_args.join(" "));
+        let shown = log_args
+            .map(|items| items.iter().map(|s| normalize_external_path(s)).collect::<Vec<_>>())
+            .unwrap_or_else(|| normalized_args.clone());
+        let cmd_str = format!("{} {}", command_path.display(), shown.join(" "));
         lg.write(&cmd_str);
     }
 
@@ -101,12 +109,54 @@ fn build_command(file_path: &Path, args: &[&str], logger: Option<&Logger>) -> Co
     cmd
 }
 
+fn build_command(file_path: &Path, args: &[&str], logger: Option<&Logger>) -> Command {
+    build_command_with_log_args(file_path, args, logger, None)
+}
+
 pub fn run_process(
     file_path: &Path,
     args: &[&str],
     logger: Option<&Logger>,
 ) -> Result<ProcessResult> {
     let output = build_command(file_path, args, logger)
+        .output()
+        .map_err(|e| anyhow!("执行程序失败 {:?}: {}", file_path, e))?;
+    Ok(collect_result(
+        output.status.code().unwrap_or(-1),
+        &output.stdout,
+        &output.stderr,
+        logger,
+    ))
+}
+
+/// 执行程序，但使用 `log_args` 写入日志。用于 SuperKey 等不能进入日志的参数。
+pub fn run_process_redacted(
+    file_path: &Path,
+    args: &[&str],
+    log_args: &[&str],
+    logger: Option<&Logger>,
+) -> Result<ProcessResult> {
+    let output = build_command_with_log_args(file_path, args, logger, Some(log_args))
+        .output()
+        .map_err(|e| anyhow!("执行程序失败 {:?}: {}", file_path, e))?;
+    Ok(collect_result(
+        output.status.code().unwrap_or(-1),
+        &output.stdout,
+        &output.stderr,
+        logger,
+    ))
+}
+
+/// 在指定工作目录中执行程序，并用脱敏参数写日志。
+pub fn run_process_in_dir_redacted(
+    file_path: &Path,
+    args: &[&str],
+    log_args: &[&str],
+    current_dir: &Path,
+    logger: Option<&Logger>,
+) -> Result<ProcessResult> {
+    let output = build_command_with_log_args(file_path, args, logger, Some(log_args))
+        .current_dir(current_dir)
         .output()
         .map_err(|e| anyhow!("执行程序失败 {:?}: {}", file_path, e))?;
     Ok(collect_result(

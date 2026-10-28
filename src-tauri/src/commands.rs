@@ -9,6 +9,7 @@ use crate::flash::{execute_flash_pipeline, gather_environment as flash_gather_en
 use crate::idflash::run_id_flash;
 use crate::logger::Logger;
 use crate::rootflash::flash_root_image;
+use crate::rootpatch::{self, PatchRequest, RootCandidates, RootToolOutcome};
 use crate::backup::{self, BackupInfo};
 use crate::boardid::{self, BoardIdOutcome, FixAction, ReadMethod};
 use crate::config::find_rom_root;
@@ -321,6 +322,50 @@ pub async fn run_root_flash_cmd(
     .map_err(|e| e.to_string())?;
 
     Ok(FlashOutcome { log_path: log_path.display().to_string(), rebooted })
+}
+
+/// 扫描当前线刷包中可用于 KernelSU/APatch 的启动镜像、内核和 kpimg。
+#[command]
+pub async fn root_candidates_cmd(rom_root: Option<String>) -> Result<RootCandidates, String> {
+    let profile = get_active_profile(rom_root.as_deref(), None)?;
+    Ok(rootpatch::discover(&profile))
+}
+
+/// Root 工具：用 KernelSU（init_boot）或 APatch（boot）修补后直接刷入。
+/// use_package 为 true 时使用当前刷机包里的镜像并校验机型；否则使用 image_path，不需要选择刷机包。
+#[command]
+pub async fn run_root_tool_cmd(
+    app: AppHandle,
+    chosen_serial: Option<String>,
+    use_package: bool,
+    method: String,
+    image_path: String,
+    kernel_path: String,
+    kmi: String,
+    super_key: String,
+    reboot: bool,
+) -> Result<RootToolOutcome, String> {
+    let profile = if use_package { Some(get_active_profile(None, None)?) } else { None };
+    let (work_dir, logs_dir, fastboot, adb) = match &profile {
+        Some(p) => (p.work_dir.clone(), p.logs_dir.clone(), p.fastboot(), p.adb()),
+        None => {
+            let tools = crate::platform_tools::tools_dir().map_err(|e| format!("{:#}", e))?;
+            let (work, logs) = rootpatch::standalone_dirs();
+            (work, logs, tools.join("fastboot.exe"), tools.join("adb.exe"))
+        }
+    };
+    let mut logger = Logger::new(Some(app));
+    logger.start(&logs_dir, "wrion-root").map_err(|e| e.to_string())?;
+    let mut session = DeviceSession::new(fastboot, adb, logger, false);
+    session.serial = chosen_serial;
+    let req = PatchRequest { method, image_path, kernel_path, kmi, super_key };
+
+    tokio::task::spawn_blocking(move || {
+        rootpatch::run_root_tool(profile.as_ref(), &mut session, &work_dir, &req, reboot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{:#}", e))
 }
 
 /// 刷机包目录（及其上一层）里文件名像 ID 补丁的 .zip / .img，供界面快速选择。

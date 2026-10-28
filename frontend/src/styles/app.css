@@ -381,6 +381,8 @@ code { padding: 1px 6px; border: 1px solid var(--line); border-radius: var(--r-s
 /* ============ 读取主板 ID ============ */
 
 .rail-tool-icon.boardid { color: #0f766e; background: #e0f5f1; }
+.rail-tool-icon.roottool { color: #be123c; background: #ffe4e9; }
+.rail-tool.active .rail-tool-icon.roottool { color: #fff; background: #e11d48; }
 .rail-tool.active .rail-tool-icon.boardid { color: #fff; background: #0d9488; }
 .timeline li.failed { color: var(--ink); font-weight: 600; }
 .timeline li.failed .tl-dot { border-color: var(--danger); color: #fff; background: var(--danger); }

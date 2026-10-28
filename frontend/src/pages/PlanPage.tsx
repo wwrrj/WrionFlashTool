@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, ChevronDown, Cpu, FolderOpen, HardDrive, RotateCw, Sparkles, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, FolderOpen, HardDrive, RotateCw, Sparkles, Zap } from 'lucide-react';
 import { PageFrame } from '../components/PageFrame';
 import { pickFile } from '../lib/api';
 import { baseName } from '../lib/format';
@@ -18,17 +18,14 @@ interface PlanPageProps {
 export function PlanPage({ profile, options, onChange, onBack, onNext, onOpenExpand }: PlanPageProps) {
   const [advanced, setAdvanced] = useState(false);
   const hasId = Boolean(profile.post_flash_id || profile.dynamic_partitions.some((p) => p.name.toLowerCase() === 'mi_ext'));
-  const hasRoot = profile.enable_root_menu;
   const hasExpand = Boolean(profile.expansion?.enabled);
-  const hasAdvanced = hasId || hasRoot || hasExpand;
+  const hasAdvanced = hasId || hasExpand;
   // 官方包只有包里带了对应脚本才能选
   const official = profile.kind === 'official' ? profile.official : null;
   const canClean = !official || Boolean(official.clean_script);
   const canUpdate = !official || Boolean(official.keep_data_script);
 
-  const missingFile = (options.idSource === 'external' && !options.idPath.trim())
-    ? '请选择外部 ID 补丁文件'
-    : options.rootEnabled && !options.rootPath.trim() ? '请选择 Root 镜像文件' : null;
+  const missingFile = options.idSource === 'external' && !options.idPath.trim() ? '请选择外部 ID 补丁文件' : null;
   const hint = !options.mode ? '请先选择刷入方式' : missingFile ?? undefined;
 
   const browse = async (name: string, exts: string[], apply: (p: string) => void) => {
@@ -64,7 +61,7 @@ export function PlanPage({ profile, options, onChange, onBack, onNext, onOpenExp
       {hasAdvanced && (
         <section className="advanced">
           <button className="advanced-toggle" onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced}>
-            <ChevronDown size={16} className={advanced ? 'open' : ''} /> 高级选项 <small>{[hasId && 'ID 补丁', hasRoot && 'Root', hasExpand && '扩容'].filter(Boolean).join('、')} — 大多数用户不需要</small>
+            <ChevronDown size={16} className={advanced ? 'open' : ''} /> 高级选项 <small>{[hasId && 'ID 补丁', hasExpand && '扩容'].filter(Boolean).join('、')} — 大多数用户不需要</small>
           </button>
           {advanced && <div className="advanced-body">
             {hasId && (
@@ -75,21 +72,6 @@ export function PlanPage({ profile, options, onChange, onBack, onNext, onOpenExp
                   <button className={options.idSource === 'external' ? 'on' : ''} onClick={() => onChange({ idSource: 'external' })}>使用外部文件</button>
                 </div>
                 {options.idSource === 'external' && <FileRow value={options.idPath} placeholder="选择 ID 补丁 .zip 或 .img" onPick={() => void browse('ID 补丁', ['zip', 'img'], (p) => onChange({ idPath: p }))} onChange={(v) => onChange({ idPath: v })} />}
-              </div>
-            )}
-            {hasRoot && (
-              <div className="opt">
-                <label className="opt-head toggle">
-                  <Cpu size={17} /><div><strong>刷入 Root 镜像</strong><small>刷入已修补的 boot / init_boot</small></div>
-                  <input type="checkbox" checked={options.rootEnabled} onChange={(e) => onChange({ rootEnabled: e.target.checked })} />
-                </label>
-                {options.rootEnabled && <>
-                  <div className="segmented">
-                    <button className={options.rootTarget === 'init_boot' ? 'on' : ''} onClick={() => onChange({ rootTarget: 'init_boot' })}>Magisk · init_boot</button>
-                    <button className={options.rootTarget === 'boot' ? 'on' : ''} onClick={() => onChange({ rootTarget: 'boot' })}>KernelSU / APatch · boot</button>
-                  </div>
-                  <FileRow value={options.rootPath} placeholder="选择已修补的 .img 镜像" onPick={() => void browse('Root 镜像', ['img'], (p) => onChange({ rootPath: p }))} onChange={(v) => onChange({ rootPath: v })} />
-                </>}
               </div>
             )}
             {hasExpand && (

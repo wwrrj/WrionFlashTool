@@ -1,14 +1,11 @@
-/** expand（扩容 / 恢复）、idtool（刷入 ID）和 boardid（读取主板 ID）是独立的工具页，不属于线性流程。 */
-export type Step = 'welcome' | 'package' | 'device' | 'plan' | 'review' | 'run' | 'done' | 'expand' | 'idtool' | 'boardid';
+/** expand（扩容 / 恢复）、idtool（刷入 ID）、boardid（读取主板 ID）和 roottool（Root 修补刷入）是独立的工具页，不属于线性流程。 */
+export type Step = 'welcome' | 'package' | 'device' | 'plan' | 'review' | 'run' | 'done' | 'expand' | 'idtool' | 'boardid' | 'roottool';
 export type FlashMode = 'clean' | 'update';
 
 export interface FlashOptions {
   mode: FlashMode | null;
   idSource: 'package' | 'external';
   idPath: string;
-  rootEnabled: boolean;
-  rootPath: string;
-  rootTarget: 'init_boot' | 'boot';
   reboot: boolean;
 }
 
@@ -16,9 +13,6 @@ export const DEFAULT_OPTIONS: FlashOptions = {
   mode: null,
   idSource: 'package',
   idPath: '',
-  rootEnabled: false,
-  rootPath: '',
-  rootTarget: 'init_boot',
   reboot: true,
 };
 

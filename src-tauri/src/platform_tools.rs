@@ -40,6 +40,16 @@ const SGDISK: &[(&str, &[u8])] = embed!["sgdisk-arm64":
     "libext2_uuid.so",
 ];
 
+/// Root 修补工具。它们和 platform-tools 一样释放到隔离的缓存目录，运行时不要求用户安装
+/// WSL、MSYS2、Python 或其它外部环境。
+const ROOT_TOOLS: &[(&str, &[u8])] = &[
+    ("kernelsu/ksud.exe", include_bytes!("../resources/root-tools/kernelsu/ksud.exe") as &[u8]),
+    ("apatch/kptools.exe", include_bytes!("../resources/root-tools/apatch/kptools.exe") as &[u8]),
+    ("apatch/kpimg-android", include_bytes!("../resources/root-tools/apatch/kpimg-android") as &[u8]),
+    ("apatch/msys-2.0.dll", include_bytes!("../resources/root-tools/apatch/msys-2.0.dll") as &[u8]),
+    ("apatch/msys-z.dll", include_bytes!("../resources/root-tools/apatch/msys-z.dll") as &[u8]),
+];
+
 /// 外部目录必须包含这些文件才会被采用，否则仍使用内置的完整版本。
 const REQUIRED: &[&str] = &["fastboot.exe", "adb.exe", "AdbWinApi.dll", "AdbWinUsbApi.dll", "make_f2fs.exe", "mke2fs.exe"];
 
@@ -63,6 +73,9 @@ fn extract_embedded(prefix: &str, files: &[(&str, &[u8])]) -> Result<PathBuf> {
     fs::create_dir_all(&dir).with_context(|| format!("无法创建工具目录：{:?}", dir))?;
     for (name, data) in files {
         let path = dir.join(name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         if fs::metadata(&path).map_or(false, |m| m.len() == data.len() as u64) {
             continue;
         }
@@ -79,6 +92,11 @@ fn extract_embedded(prefix: &str, files: &[(&str, &[u8])]) -> Result<PathBuf> {
     }
     remove_stale_copies(&dir, prefix);
     Ok(dir)
+}
+
+/// 返回内置 KernelSU/APatch 修补工具目录。
+pub fn root_tools_dir() -> Result<PathBuf> {
+    extract_embedded("root-tools", ROOT_TOOLS)
 }
 
 /// 删除旧版本释放的工具目录；正在被占用（如 adb 仍在运行）的会删不掉，留到下次。

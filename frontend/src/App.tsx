@@ -4,7 +4,7 @@ import { LogDrawer } from './components/LogDrawer';
 import { NoticeModal } from './components/NoticeModal';
 import { Sidebar } from './components/Sidebar';
 import type { SidebarTool } from './components/Sidebar';
-import { Cpu, HardDrive, Sparkles } from 'lucide-react';
+import { Cpu, HardDrive, KeyRound, Sparkles } from 'lucide-react';
 import { SuperShortModal } from './components/SuperShortModal';
 import { Titlebar } from './components/Titlebar';
 import { UpdateModal } from './components/UpdateModal';
@@ -22,6 +22,7 @@ import { DevicePage } from './pages/DevicePage';
 import { PackagePage } from './pages/PackagePage';
 import { PlanPage } from './pages/PlanPage';
 import { ReviewPage } from './pages/ReviewPage';
+import { RootPage } from './pages/RootPage';
 import { RunPage } from './pages/RunPage';
 import { WelcomePage } from './pages/WelcomePage';
 import { DEFAULT_OPTIONS } from './wizard';
@@ -101,7 +102,7 @@ export function App() {
   // 检查手机时设备会重启，暂停自动检测以免干扰
   const devices = useDevices(Boolean(profile), step === 'device' && !checking);
 
-  const patchOptions = (patch: Partial<FlashOptions>) => setOptions((prev) => ({ ...prev, ...patch }));
+  const patchOptions = useCallback((patch: Partial<FlashOptions>) => setOptions((prev) => ({ ...prev, ...patch })), []);
 
   /**
    * 读取机型、super 容量和防回滚版本，不写入任何内容。
@@ -155,25 +156,19 @@ export function App() {
       }
       setPreparing(false);
       addLog(preserveData ? '>>> 开始系统更新（保留数据）…' : '>>> 开始完整线刷（清空数据）…');
-      // 只在最后一步重启：后面还有 ID 补丁或 Root 时，主流程不重启
+      // 只在最后一步重启：后面还有 ID 补丁时，主流程不重启
       let outcome = await api.runFlash({
         chosenSerial: serial,
         preserveData,
         confirmWord: preserveData ? profile.update_confirmation_word || 'UPDATE' : profile.confirmation_word || 'WIPE',
-        reboot: !external && !options.rootEnabled && reboot,
+        reboot: !external && reboot,
       });
       addLog(`[主流程完成] 日志保存于 ${outcome.log_path}`);
       if (external) {
         setExtraLabel('正在刷入 ID 补丁…');
         addLog('>>> 开始刷入 ID 补丁…');
-        outcome = await api.runIdFlash({ chosenSerial: serial, idFile: options.idPath, reboot: !options.rootEnabled && reboot });
+        outcome = await api.runIdFlash({ chosenSerial: serial, idFile: options.idPath, reboot });
         addLog(`[ID 补丁完成] 日志保存于 ${outcome.log_path}`);
-      }
-      if (options.rootEnabled) {
-        setExtraLabel('正在刷入 Root 镜像…');
-        addLog(`>>> 开始刷入 ${options.rootTarget} Root 镜像…`);
-        outcome = await api.runRootFlash({ chosenSerial: serial, imagePath: options.rootPath, target: options.rootTarget, reboot });
-        addLog(`[Root 完成] 日志保存于 ${outcome.log_path}`);
       }
       setRebooted(outcome.rebooted);
       if (reboot && !outcome.rebooted) addLog('[提示] 手机没有自动重启，请长按电源键手动重启');
@@ -196,7 +191,7 @@ export function App() {
   const device = devices.current;
   const showLogs = () => setLogsOpen(true);
   const running = step === 'run' && !error;
-  const inTool = step === 'expand' || step === 'idtool' || step === 'boardid';
+  const inTool = step === 'expand' || step === 'idtool' || step === 'boardid' || step === 'roottool';
   const openTool = (tool: Step) => {
     if (!inTool) setReturnStep(step);
     setStep(tool);
@@ -223,6 +218,15 @@ export function App() {
       icon: <Cpu size={15} />,
       active: step === 'boardid',
       onOpen: () => openTool('boardid'),
+    },
+    {
+      // 默认可用：选了刷机包时用包里的镜像，没选时让用户选择镜像
+      key: 'roottool',
+      label: 'Root 修补刷入',
+      hint: 'KernelSU · init_boot / APatch · boot',
+      icon: <KeyRound size={15} />,
+      active: step === 'roottool',
+      onOpen: () => openTool('roottool'),
     },
     {
       key: 'idtool',
@@ -288,6 +292,9 @@ export function App() {
       )}
       {step === 'boardid' && (
         <BoardIdPage onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={() => setStep(returnStep)} />
+      )}
+      {step === 'roottool' && (
+        <RootPage key={profile?.rom_root ?? 'none'} profile={profile} serial={devices.selectedSerial} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={() => setStep(returnStep)} />
       )}
       {step === 'idtool' && profile && (
         <IdPage serial={devices.selectedSerial} logs={events.logs} onShowLogs={showLogs} onLog={addLog} onBusyChange={setToolBusy} onExit={() => setStep(returnStep)} />

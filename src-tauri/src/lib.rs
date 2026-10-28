@@ -6,6 +6,7 @@ pub mod package;
 pub mod device;
 pub mod flash;
 pub mod rootflash;
+pub mod rootpatch;
 pub mod idflash;
 pub mod boardid;
 pub mod expand;
@@ -35,6 +36,8 @@ pub fn run() {
             commands::run_diagnostics_cmd,
             commands::run_flash_cmd,
             commands::run_root_flash_cmd,
+            commands::root_candidates_cmd,
+            commands::run_root_tool_cmd,
             commands::run_id_flash_cmd,
             commands::id_candidates_cmd,
             commands::read_board_id_cmd,

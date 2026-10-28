@@ -12,6 +12,7 @@ frontend/.pnpm-store/
 dist/
 *.exe
 !src-tauri/resources/platform-tools/*.exe
+!src-tauri/resources/root-tools/**/*.exe
 
 # ROM runtime data
 work/

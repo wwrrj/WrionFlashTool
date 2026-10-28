@@ -3,7 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { FLASH_STAGES } from '../wizard';
 import type {
   BackupInfo, BoardIdFix, BoardIdMethod, BoardIdOutcome, DeviceSummary, FlashOutcome, UsbDriverInstallResult, UsbDriverStatus, EnvReport, ExpandPlan, ExpandProgressEvent, ExtractProgressEvent, FlashProfile,
-  FlashStageEvent, PackageInfo, PartitionProgressEvent, UpdateInfo,
+  FlashStageEvent, PackageInfo, PartitionProgressEvent, UpdateInfo, RootCandidates, RootMethod, RootToolOutcome,
 } from '../types';
 
 export const isTauri = () =>
@@ -245,6 +245,26 @@ export const api = {
   },
   runRootFlash: (args: { chosenSerial: string | null; imagePath: string; target: string; reboot: boolean }): Promise<FlashOutcome> =>
     invoke('run_root_flash_cmd', { ...args, confirmWord: 'ROOT' }),
+  rootCandidates: (): Promise<RootCandidates> => {
+    if (isTauri()) return invoke('root_candidates_cmd', {});
+    return Promise.resolve({
+      boot_images: ['D:\\Preview\\ROM\\images\\boot.img'],
+      init_boot_images: ['D:\\Preview\\ROM\\images\\init_boot.img'],
+      kernel_images: ['D:\\Preview\\ROM\\Image'],
+      kpimg_images: ['D:\\Preview\\ROM\\kpimg-android'],
+      kernelsu_modules: [],
+    });
+  },
+  /** 修补并刷入 Root：KernelSU 修补 init_boot，APatch 修补 boot。usePackage 为 false 时用 imagePath，不需要刷机包。 */
+  runRootTool: async (args: {
+    chosenSerial: string | null; usePackage: boolean; method: RootMethod; imagePath: string;
+    kernelPath: string; kmi: string; superKey: string; reboot: boolean;
+  }): Promise<RootToolOutcome> => {
+    if (isTauri()) return invoke('run_root_tool_cmd', args);
+    const target = args.method === 'apatch' ? 'boot' : 'init_boot';
+    await simulateExpand('root', [`修补 ${target}`, '连接手机', `刷入 ${target}`, ...(args.reboot ? ['重启手机'] : [])]);
+    return { output_path: `D:\\Preview\\WrionFlashTool\\root-patch\\${args.method}\\patched.img`, source_path: args.imagePath || `D:\\Preview\\ROM\\images\\${target}.img`, method: args.method, target, log_path: 'preview-root.log', rebooted: args.reboot };
+  },
 
   expandPlan: async (): Promise<ExpandPlan> => {
     if (isTauri()) return invoke('get_expand_plan_cmd', {});

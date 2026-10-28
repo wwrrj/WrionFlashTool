@@ -18,7 +18,6 @@ export function ReviewPage({ profile, device, options, onBack, onStart }: Review
   const clean = options.mode === 'clean';
   const extras = [
     options.idSource === 'external' && `外部 ID 补丁：${baseName(options.idPath)}`,
-    options.rootEnabled && `Root 镜像（${options.rootTarget}）：${baseName(options.rootPath)}`,
   ].filter(Boolean) as string[];
   const canStart = !clean || word.trim() === profile.confirmation_word;
 
